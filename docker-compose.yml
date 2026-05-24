@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8900:8900"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - DB_PATH=/app/data/test_observability.db
+    restart: unless-stopped
+
+  timeline:
+    image: nginx:alpine
+    ports:
+      - "8901:80"
+    volumes:
+      - ./timeline:/usr/share/nginx/html:ro
+    restart: unless-stopped

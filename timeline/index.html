@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>测试观测平台 — Timeline</title>
+  <script src="https://unpkg.com/vis-timeline@7.7.3/standalone/umd/vis-timeline-graph2d.min.js"></script>
+  <link href="https://unpkg.com/vis-timeline@7.7.3/styles/vis-timeline-graph2d.min.css" rel="stylesheet" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #c9d1d9; }
+    .header { background: #161b22; border-bottom: 1px solid #30363d; padding: 12px 24px; display: flex; align-items: center; gap: 16px; }
+    .header h1 { font-size: 18px; color: #58a6ff; }
+    .header .stats { font-size: 13px; color: #8b949e; }
+    .controls { background: #161b22; border-bottom: 1px solid #30363d; padding: 10px 24px; display: flex; gap: 12px; flex-wrap: wrap; }
+    .controls select, .controls input, .controls button { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 12px; border-radius: 6px; font-size: 13px; }
+    .controls button { background: #238636; cursor: pointer; }
+    .controls button:hover { background: #2ea043; }
+    #timeline { background: #0d1117; }
+    .vis-timeline { border: none !important; }
+    .vis-group { background: #161b22 !important; border-bottom: 1px solid #21262d !important; }
+    .vis-label { color: #c9d1d9 !important; font-weight: 500; }
+    .vis-item { border-radius: 4px; font-size: 12px; }
+    .event-test { background-color: #1f6feb33; border-color: #1f6feb; color: #58a6ff; }
+    .event-test-fail { background-color: #f8514933; border-color: #f85149; color: #f85149; }
+    .event-assert { background-color: #23863633; border-color: #238636; color: #3fb950; }
+    .event-assert-fail { background-color: #da363333; border-color: #da3633; color: #f85149; }
+    .event-agent { background-color: #8b5cf633; border-color: #8b5cf6; color: #bc8cff; }
+    .event-game { background-color: #d29922aa; border-color: #d29922; color: #e3b341; }
+    .event-bug { background-color: #f8514933; border-color: #f85149; color: #f85149; }
+    .event-report { background-color: #58a6ff33; border-color: #58a6ff; color: #58a6ff; }
+    .event-observation { background-color: #8b949e33; border-color: #8b949e; color: #8b949e; }
+    .detail-panel { position: fixed; right: 0; top: 0; width: 400px; height: 100vh; background: #161b22; border-left: 1px solid #30363d; transform: translateX(100%); transition: transform 0.2s; overflow-y: auto; z-index: 100; }
+    .detail-panel.open { transform: translateX(0); }
+    .detail-panel .panel-header { padding: 16px; border-bottom: 1px solid #30363d; display: flex; justify-content: space-between; align-items: center; }
+    .detail-panel .panel-header h3 { font-size: 16px; color: #58a6ff; }
+    .detail-panel .panel-header button { background: none; border: none; color: #8b949e; cursor: pointer; font-size: 18px; }
+    .detail-panel .panel-body { padding: 16px; }
+    .detail-panel pre { background: #0d1117; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; line-height: 1.5; }
+    .detail-panel .tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; margin: 2px; }
+    .tag-type { background: #1f6feb33; color: #58a6ff; }
+    .tag-severity-high { background: #f8514933; color: #f85149; }
+    .tag-severity-medium { background: #d29922aa; color: #e3b341; }
+    .tag-severity-low { background: #238636aa; color: #3fb950; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🔬 测试观测平台</h1>
+    <span class="stats" id="stats">加载中...</span>
+  </div>
+  <div class="controls">
+    <select id="projectFilter">
+      <option value="">所有项目</option>
+      <option value="travel-agent">TravelAgent</option>
+      <option value="pogongshichongzou">pogongshichongzou</option>
+      <option value="loopexpedition">loopexpedition</option>
+    </select>
+    <select id="typeFilter">
+      <option value="">所有类型</option>
+      <option value="test.start">test.start</option>
+      <option value="test.end">test.end</option>
+      <option value="test.fail">test.fail</option>
+      <option value="assert.pass">assert.pass</option>
+      <option value="assert.fail">assert.fail</option>
+      <option value="agent.tool_call">agent.tool_call</option>
+      <option value="game.state_change">game.state_change</option>
+      <option value="report.bug_candidate">report.bug_candidate</option>
+    </select>
+    <input type="text" id="gatewayUrl" value="http://localhost:8900" placeholder="网关地址" />
+    <button onclick="loadSessions()">刷新会话</button>
+    <button onclick="loadTimeline()">加载时间线</button>
+  </div>
+  <div style="padding: 10px 24px;">
+    <select id="sessionSelect" style="width: 100%; background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 12px; border-radius: 6px;">
+      <option value="">选择测试会话...</option>
+    </select>
+  </div>
+  <div id="timeline"></div>
+  <div class="detail-panel" id="detailPanel">
+    <div class="panel-header">
+      <h3>事件详情</h3>
+      <button onclick="closePanel()">✕</button>
+    </div>
+    <div class="panel-body" id="panelBody"></div>
+  </div>
+
+  <script>
+    let timeline = null;
+    let currentEvents = [];
+
+    const gateway = () => document.getElementById('gatewayUrl').value.replace(/\/$/, '');
+
+    async function loadSessions() {
+      const project = document.getElementById('projectFilter').value;
+      const url = project
+        ? `${gateway()}/sessions?project=${project}&limit=50`
+        : `${gateway()}/sessions?limit=50`;
+      try {
+        const resp = await fetch(url);
+        const data = await resp.json();
+        const select = document.getElementById('sessionSelect');
+        select.innerHTML = '<option value="">选择测试会话...</option>';
+        for (const s of data.sessions || []) {
+          const date = new Date(s.started_at).toLocaleString('zh-CN');
+          const proj = s.project || 'unknown';
+          const opt = document.createElement('option');
+          opt.value = s.session_id;
+          opt.textContent = `[${proj}] ${s.session_id.slice(0, 16)}... — ${date}`;
+          select.appendChild(opt);
+        }
+        document.getElementById('stats').textContent = `${data.sessions?.length || 0} 个会话`;
+      } catch (e) {
+        document.getElementById('stats').textContent = '连接失败: ' + e.message;
+      }
+    }
+
+    async function loadTimeline() {
+      const sessionId = document.getElementById('sessionSelect').value;
+      if (!sessionId) { alert('请先选择会话'); return; }
+      try {
+        const resp = await fetch(`${gateway()}/sessions/${sessionId}/timeline?limit=5000`);
+        const data = await resp.json();
+        currentEvents = data.events || [];
+        renderTimeline(currentEvents);
+        document.getElementById('stats').textContent = `${currentEvents.length} 个事件`;
+      } catch (e) {
+        document.getElementById('stats').textContent = '加载失败: ' + e.message;
+      }
+    }
+
+    function renderTimeline(events) {
+      const typeFilter = document.getElementById('typeFilter').value;
+      const filtered = typeFilter
+        ? events.filter(e => e.type === typeFilter)
+        : events;
+
+      const groups = new vis.DataSet();
+      const groupSet = new Set();
+      for (const e of filtered) {
+        const g = e.source?.project || 'unknown';
+        if (!groupSet.has(g)) {
+          groupSet.add(g);
+          groups.add({ id: g, content: g });
+        }
+      }
+
+      const items = new vis.DataSet(filtered.map((e, i) => ({
+        id: e.event_id || `item-${i}`,
+        group: e.source?.project || 'unknown',
+        start: e.timestamp,
+        content: formatContent(e),
+        className: getClassName(e.type),
+        title: `[${e.type}] ${JSON.stringify(e.data).slice(0, 200)}`,
+        data: e,
+      })));
+
+      const container = document.getElementById('timeline');
+      const options = {
+        stack: true,
+        height: '400px',
+        margin: { item: { horizontal: 2, vertical: 4 } },
+        orientation: 'top',
+        zoomMin: 1000,
+        zoomMax: 1000 * 60 * 60 * 24,
+      };
+
+      if (timeline) timeline.destroy();
+      timeline = new vis.Timeline(container, items, groups, options);
+      timeline.on('select', (props) => {
+        if (props.items.length > 0) {
+          const item = items.get(props.items[0]);
+          if (item?.data) showDetail(item.data);
+        }
+      });
+    }
+
+    function formatContent(e) {
+      const d = e.data || {};
+      switch (e.type) {
+        case 'test.start': return `▶ ${d.test_name || 'test'}`;
+        case 'test.end': return `✅ ${d.test_name || 'test'} (${d.duration_ms || 0}ms)`;
+        case 'test.fail': return `❌ ${d.test_name || 'test'}`;
+        case 'assert.pass': return `✓ ${d.assertion_name || 'assert'}`;
+        case 'assert.fail': return `✗ ${d.assertion_name || 'assert'}`;
+        case 'agent.tool_call': return `🔧 ${d.tool_name || 'tool'}`;
+        case 'agent.tool_result': return `${d.success ? '✓' : '✗'} ${d.tool_name || 'tool'} result`;
+        case 'game.state_change': return `🎮 ${d.scene_path || 'state'}`;
+        case 'report.bug_candidate': {
+          const icon = { high: '🔴', medium: '🟡', low: '🟢' }[d.severity] || '⚪';
+          return `${icon} Bug: ${(d.description || '').slice(0, 40)}`;
+        }
+        case 'report.gate_result': return `${d.verdict === 'PASS' ? '✅' : '❌'} Gate: ${d.verdict}`;
+        default: return `[${e.type}]`;
+      }
+    }
+
+    function getClassName(type) {
+      if (type?.startsWith('test.')) return type.includes('fail') ? 'event-test-fail' : 'event-test';
+      if (type?.startsWith('assert.')) return type.includes('fail') ? 'event-assert-fail' : 'event-assert';
+      if (type?.startsWith('agent.')) return 'event-agent';
+      if (type?.startsWith('game.')) return 'event-game';
+      if (type?.includes('bug')) return 'event-bug';
+      if (type?.startsWith('report.')) return 'event-report';
+      if (type?.startsWith('observation.')) return 'event-observation';
+      return '';
+    }
+
+    function showDetail(event) {
+      const panel = document.getElementById('detailPanel');
+      const body = document.getElementById('panelBody');
+      const d = event.data || {};
+      const severity = d.severity;
+      const severityTag = severity
+        ? `<span class="tag tag-severity-${severity}">${severity}</span>`
+        : '';
+      body.innerHTML = `
+        <p><strong>事件 ID:</strong> ${event.event_id}</p>
+        <p><strong>类型:</strong> <span class="tag tag-type">${event.type}</span> ${severityTag}</p>
+        <p><strong>时间:</strong> ${new Date(event.timestamp).toLocaleString('zh-CN')}</p>
+        <p><strong>来源:</strong> ${event.source?.framework} / ${event.source?.project}</p>
+        ${event.source?.test_name ? `<p><strong>测试:</strong> ${event.source.test_name}</p>` : ''}
+        ${event.trace_id ? `<p><strong>Trace ID:</strong> ${event.trace_id}</p>` : ''}
+        <h4 style="margin: 16px 0 8px; color: #58a6ff;">数据</h4>
+        <pre>${JSON.stringify(d, null, 2)}</pre>
+      `;
+      panel.classList.add('open');
+    }
+
+    function closePanel() {
+      document.getElementById('detailPanel').classList.remove('open');
+    }
+
+    // 启动时加载会话
+    loadSessions();
+  </script>
+</body>
+</html>

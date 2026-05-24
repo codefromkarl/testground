@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TestEvent",
+  "description": "统一测试事件格式",
+  "type": "object",
+  "required": ["event_id", "session_id", "timestamp", "source", "type", "data"],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "description": "事件唯一标识 (UUID)"
+    },
+    "session_id": {
+      "type": "string",
+      "description": "测试会话 ID"
+    },
+    "timestamp": {
+      "type": "integer",
+      "description": "Unix 毫秒时间戳"
+    },
+    "source": {
+      "$ref": "#/definitions/EventSource"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "test.start", "test.end", "test.skip", "test.fail", "test.error",
+        "assert.pass", "assert.fail", "assert.semantic",
+        "action.click", "action.input", "action.navigate", "action.wait", "action.screenshot",
+        "game.state_change", "game.scene_load", "game.signal_emit", "game.save", "game.load",
+        "agent.llm_call", "agent.tool_call", "agent.tool_result", "agent.thinking",
+        "observation.snapshot", "observation.coverage", "observation.anomaly",
+        "report.summary", "report.bug_candidate", "report.gate_result"
+      ]
+    },
+    "data": {
+      "type": "object",
+      "description": "事件数据（结构随 type 变化）"
+    },
+    "parent_event_id": {
+      "type": "string",
+      "description": "父事件 ID（因果链）"
+    },
+    "trace_id": {
+      "type": "string",
+      "description": "跨系统追踪 ID"
+    },
+    "span_id": {
+      "type": "string",
+      "description": "追踪 span ID"
+    }
+  },
+  "definitions": {
+    "EventSource": {
+      "type": "object",
+      "required": ["framework", "project"],
+      "properties": {
+        "framework": {
+          "type": "string",
+          "enum": ["vitest", "gdunit4", "playwright", "airtest", "custom"]
+        },
+        "project": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "test_name": {
+          "type": "string"
+        },
+        "suite": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
