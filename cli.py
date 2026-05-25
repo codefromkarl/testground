@@ -5,7 +5,8 @@
     python -m cli import-events <path>     # 导入事件 JSON 文件
     python -m cli sessions                 # 列出会话
     python -m cli timeline <session_id>    # 查看时间线
-    python -m cli analyze <session_id>     # 运行 AI 分析
+    python -m cli analyze <session_id>     # 运行 AI 分析（传统模式）
+    python -m cli pipeline <session_id>    # 运行分析流水线（多窄 Agent）
     python -m cli stats <project>          # 项目统计
 """
 
@@ -26,6 +27,7 @@ if str(_root) not in sys.path:
 from schema.events import EventSource, TestEvent, create_gate_result
 from gateway.storage import Storage
 from analyzers import BugDiscoveryAnalyzer, QualityGuard, AnomalyDetector, SemanticEvaluator
+from analyzers.pipeline import AnalysisPipeline, PipelineConfig, PipelineState
 
 
 def cmd_import_report(args: argparse.Namespace) -> None:
@@ -147,7 +149,7 @@ def cmd_timeline(args: argparse.Namespace) -> None:
 
 
 def cmd_analyze(args: argparse.Namespace) -> None:
-    """运行 AI 分析"""
+    """运行 AI 分析（传统模式 — 4 个独立分析器）"""
     storage = Storage(args.db)
     events = storage.get_session_events(args.session_id, limit=10000)
 
@@ -178,6 +180,63 @@ def cmd_analyze(args: argparse.Namespace) -> None:
             for r in result.recommendations:
                 print(f"   💡 {r}")
         print()
+
+
+def cmd_pipeline(args: argparse.Namespace) -> None:
+    """运行分析流水线（多窄 Agent 架构）"""
+    storage = Storage(args.db)
+    events = storage.get_session_events(args.session_id, limit=10000)
+
+    if not events:
+        print(f"会话 {args.session_id} 无事件")
+        return
+
+    db_path = Path(args.db).parent / "pipeline_state.db"
+    state = PipelineState(db_path)
+    config = PipelineConfig(
+        use_llm=not args.no_llm,
+        max_tokens=args.max_tokens,
+        enable_feedback=not args.no_feedback,
+    )
+    pipeline = AnalysisPipeline(state=state, config=config)
+
+    print(f"🔄 运行分析流水线: {args.session_id}")
+    print(f"   模式: {'LLM' if config.use_llm else '规则引擎'}")
+    print(f"   事件数: {len(events)}")
+    print()
+
+    result = pipeline.run(events, session_id=args.session_id)
+
+    # 输出报告
+    print(f"{'='*60}")
+    print(f"📊 分析结果")
+    print(f"{'='*60}")
+    print(f"状态: {result.status}")
+    print(f"耗时: {result.duration_ms}ms")
+    print(f"质量分: {result.quality_score:.0f}/100")
+    print()
+
+    if result.confirmed_findings:
+        print(f"已确认问题 ({len(result.confirmed_findings)} 个):")
+        for f in result.confirmed_findings:
+            severity = f.get("severity", "info")
+            icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}.get(severity, "⚪")
+            print(f"  {icon} [{f.get('category')}] {f.get('description', '')[:70]}")
+    else:
+        print("✅ 未发现已确认问题")
+
+    if result.rejected_count > 0:
+        print(f"\n已拒绝: {result.rejected_count} 个（对抗验证推翻）")
+
+    if result.recommendations:
+        print(f"\n建议:")
+        for r in result.recommendations:
+            print(f"  💡 {r}")
+
+    if result.cost_summary:
+        print(f"\nToken 消耗: {result.cost_summary}")
+
+    state.close()
 
 
 def cmd_stats(args: argparse.Namespace) -> None:
@@ -220,8 +279,15 @@ def main() -> None:
     p.add_argument("--limit", type=int, default=100, help="最大数量")
 
     # analyze
-    p = sub.add_parser("analyze", help="运行 AI 分析")
+    p = sub.add_parser("analyze", help="运行 AI 分析（传统模式）")
     p.add_argument("session_id", help="会话 ID")
+
+    # pipeline
+    p = sub.add_parser("pipeline", help="运行分析流水线（多窄 Agent）")
+    p.add_argument("session_id", help="会话 ID")
+    p.add_argument("--no-llm", action="store_true", help="强制使用规则引擎")
+    p.add_argument("--no-feedback", action="store_true", help="禁用反馈循环")
+    p.add_argument("--max-tokens", type=int, default=100000, help="Token 预算上限")
 
     # stats
     p = sub.add_parser("stats", help="项目统计")
@@ -240,6 +306,8 @@ def main() -> None:
         cmd_timeline(args)
     elif args.command == "analyze":
         cmd_analyze(args)
+    elif args.command == "pipeline":
+        cmd_pipeline(args)
     elif args.command == "stats":
         cmd_stats(args)
     else:

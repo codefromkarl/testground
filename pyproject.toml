@@ -25,3 +25,7 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "llm: requires LLM API (CPA/mimo3 or other)",
+    "slow: slow integration test (full pipeline)",
+]

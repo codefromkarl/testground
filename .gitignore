@@ -36,3 +36,4 @@ Thumbs.db
 .env
 *.env.local
 *.desktop_control.env*
+.ace-tool/

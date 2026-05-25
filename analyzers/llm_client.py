@@ -1,6 +1,12 @@
 """LLM 客户端 — 封装 OpenAI 兼容 API 调用
 
-支持任意 OpenAI API 兼容端点（OpenAI、vLLM、Ollama、LocalAI 等）。
+支持任意 OpenAI API 兼容端点。
+模型自动发现优先级：
+  1. 显式传入参数
+  2. LLM_API_BASE / LLM_API_KEY / LLM_MODEL 环境变量
+  3. CPA_API_KEY + http://127.0.0.1:8317/v1（pi 本地网关）
+  4. MIMO_API_KEY + https://api.xiaomimimo.com/v1
+  5. 其他已知 provider
 """
 
 from __future__ import annotations
@@ -16,10 +22,19 @@ import httpx
 logger = logging.getLogger(__name__)
 
 # 默认配置
-DEFAULT_API_BASE = "http://localhost:6011/v1"
-DEFAULT_MODEL = "gpt"
-DEFAULT_TIMEOUT = 30.0
+DEFAULT_TIMEOUT = 60.0
 DEFAULT_MAX_RETRIES = 2
+
+# 已知 provider 自动发现表
+PROVIDER_DISCOVERY = [
+    # (env_key_name, env_base_url, default_model)
+    {"key_env": "CPA_API_KEY", "base": "http://127.0.0.1:8317/v1", "model": "mimo3"},
+    {"key_env": "MIMO_API_KEY", "base": "https://api.xiaomimimo.com/v1", "model": "mimo-v2.5-pro"},
+    {"key_env": "SILICONFLOW_API_KEY", "base": "https://api.siliconflow.cn/v1", "model": "Qwen/Qwen3-235B-A22B"},
+    {"key_env": "ARK_API_KEY", "base": "https://ark.cn-beijing.volces.com/api/v3", "model": "doubao-1.5-pro-256k"},
+    {"key_env": "DOUBAO_API_KEY", "base": "https://ark.cn-beijing.volces.com/api/v3", "model": "doubao-1.5-pro-256k"},
+    {"key_env": "OPENAI_API_KEY", "base": "https://api.openai.com/v1", "model": "gpt-4o"},
+]
 
 
 @dataclass
@@ -34,13 +49,31 @@ class LLMConfig:
     temperature: float = 0.1
 
     def __post_init__(self) -> None:
-        # 从环境变量填充默认值
+        # 优先级 1: 显式传入的参数（不为空）
+        # 优先级 2: LLM_* 环境变量
+        # 优先级 3: 已知 provider 自动发现
         if not self.api_base:
-            self.api_base = os.environ.get("LLM_API_BASE", DEFAULT_API_BASE)
+            self.api_base = os.environ.get("LLM_API_BASE", "")
         if not self.api_key:
             self.api_key = os.environ.get("LLM_API_KEY", "")
         if not self.model:
-            self.model = os.environ.get("LLM_MODEL", DEFAULT_MODEL)
+            self.model = os.environ.get("LLM_MODEL", "")
+
+        # 自动发现：如果没有显式配置，从已知 provider 中找
+        if not self.api_key or not self.api_base:
+            for provider in PROVIDER_DISCOVERY:
+                key = os.environ.get(provider["key_env"], "")
+                if key:
+                    if not self.api_base:
+                        self.api_base = provider["base"]
+                    if not self.api_key:
+                        self.api_key = key
+                    if not self.model:
+                        self.model = provider["model"]
+                    break
+
+        if not self.api_base:
+            logger.warning("未找到 LLM API 配置，LLM 功能将不可用")
 
 
 class LLMClient:
@@ -59,11 +92,28 @@ class LLMClient:
             headers = {"Content-Type": "application/json"}
             if self.config.api_key:
                 headers["Authorization"] = f"Bearer {self.config.api_key}"
-            self._client = httpx.Client(
-                base_url=self.config.api_base,
-                headers=headers,
-                timeout=self.config.timeout,
-            )
+    @property
+    def client(self) -> httpx.Client:
+        if self._client is None or self._client.is_closed:
+            headers = {"Content-Type": "application/json"}
+            if self.config.api_key:
+                headers["Authorization"] = f"Bearer {self.config.api_key}"
+            # httpx 0.28.x 的 proxy=None 仍读环境变量，SOCKS 会炸
+            # 直接在创建时清理代理环境变量
+            old_proxy = {}
+            for k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"):
+                v = os.environ.pop(k, None)
+                if v is not None:
+                    old_proxy[k] = v
+            try:
+                self._client = httpx.Client(
+                    base_url=self.config.api_base,
+                    headers=headers,
+                    timeout=self.config.timeout,
+                )
+            finally:
+                os.environ.update(old_proxy)
+        return self._client
         return self._client
 
     def chat(self, prompt: str, system: str = "") -> str:
@@ -150,16 +200,28 @@ class LLMError(Exception):
 
 
 def is_llm_available() -> bool:
-    """检查 LLM 是否可用（环境变量已配置）。
+    """检查 LLM 是否可用。
 
-    用于 SemanticEvaluator 决定是否降级到规则引擎。
+    自动发现逻辑：
+    1. LLM_API_KEY + LLM_API_BASE 已设置
+    2. 任何已知 provider 的 API key 在环境中
+    3. 本地端点（无需 key）
     """
-    api_key = os.environ.get("LLM_API_KEY", "")
-    # 有 API key 或者使用本地端点（无需 key）都认为可用
-    if api_key:
+    # 显式配置
+    if os.environ.get("LLM_API_KEY") or os.environ.get("LLM_API_BASE"):
         return True
-    api_base = os.environ.get("LLM_API_BASE", "")
-    # 本地端点默认可用
-    if api_base and ("localhost" in api_base or "127.0.0.1" in api_base):
-        return True
+    # 已知 provider
+    for provider in PROVIDER_DISCOVERY:
+        if os.environ.get(provider["key_env"]):
+            return True
     return False
+
+
+def get_default_model_info() -> Dict[str, str]:
+    """返回当前自动发现的模型信息"""
+    config = LLMConfig()
+    return {
+        "api_base": config.api_base or "(未配置)",
+        "model": config.model or "(未配置)",
+        "has_key": bool(config.api_key),
+    }

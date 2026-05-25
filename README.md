@@ -143,7 +143,43 @@ with emitter_session("http://localhost:8900") as emitter:
 
 ## AI 分析器
 
+### 传统分析器（规则引擎）
+
 - **BugDiscoveryAnalyzer**: 检测连续失败、慢测试、重复失败、未完成测试
 - **SemanticEvaluator**: LLM-as-Judge 语义质量评估
 - **QualityGuard**: 断言密度、测试粒度、错误覆盖检查
 - **AnomalyDetector**: 跨项目通过率、事件分布、时间异常检测
+
+### 分析流水线（多窄 Agent 架构）
+
+受 [evilsocket/audit](https://github.com/evilsocket/audit) 启发的 5 阶段分析流水线：
+
+```
+Recon → Hunt(并行) → Validate(对抗) → Feedback(扩散) → Report
+```
+
+| 阶段 | 职责 | 模式 |
+|------|------|------|
+| **Recon** | 扫描事件，生成窄范围分析任务 | LLM / 规则 |
+| **Hunt** | 多个窄 Agent 并行检测（flaky/regression/coverage/semantic/perf） | LLM / 规则 |
+| **Validate** | 对抗验证：用不同 prompt 视角推翻 findings | 仅 LLM |
+| **Feedback** | 从已确认 findings 提取模式，扩散检测 | LLM / 规则 |
+| **Report** | 汇总报告，输出质量分和行动建议 | LLM / 规则 |
+
+用法：
+
+```python
+from analyzers import AnalysisPipeline, PipelineConfig, PipelineState
+
+state = PipelineState(db_path)
+config = PipelineConfig(use_llm=False)  # 规则引擎模式
+# config = PipelineConfig(use_llm=True)  # LLM 模式
+pipeline = AnalysisPipeline(state=state, config=config)
+
+result = pipeline.run(events, session_id="sess-1")
+print(result.confirmed_findings)  # 已确认的问题
+print(result.quality_score)        # 0-100 质量分
+print(result.recommendations)      # 行动建议
+```
+
+详见 `analyzers/pipeline/` 目录。
