@@ -1,0 +1,122 @@
+name: Godot E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_name:
+        description: "Project name for test session"
+        required: true
+        type: string
+      godot_host:
+        description: "Godot RPC host (default: localhost)"
+        required: false
+        default: "localhost"
+        type: string
+      godot_port:
+        description: "Godot RPC port (default: 19090)"
+        required: false
+        default: "19090"
+        type: string
+      gateway_url:
+        description: "Gateway URL (default: http://localhost:8900)"
+        required: false
+        default: "http://localhost:8900"
+        type: string
+
+env:
+  GODOT_HOST: ${{ inputs.godot_host || 'localhost' }}
+  GODOT_PORT: ${{ inputs.godot_port || '19090' }}
+  GATEWAY_URL: ${{ inputs.gateway_url || 'http://localhost:8900' }}
+  PROJECT_NAME: ${{ inputs.project_name }}
+
+jobs:
+  e2e-test:
+    name: EventBridge E2E 测试
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install httpx
+
+      - name: Start Gateway (background)
+        run: |
+          cd gateway
+          nohup uvicorn main:app --host 0.0.0.0 --port 8900 > ../gateway.log 2>&1 &
+          echo $! > ../gateway.pid
+          cd ..
+          echo "Gateway PID: $(cat gateway.pid)"
+
+      - name: Wait for Gateway
+        run: |
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:8900/health > /dev/null 2>&1; then
+              echo "Gateway is ready!"
+              break
+            fi
+            echo "Waiting for Gateway... ($i/30)"
+            sleep 1
+          done
+
+      - name: Start Godot game (headless, optional)
+        id: godot
+        continue-on-error: true
+        run: |
+          # Note: Godot game may not be available in CI
+          # This step is for when a Godot project is provided
+          echo "Godot game startup is optional in CI"
+          echo "godot_available=false" >> $GITHUB_OUTPUT
+
+      - name: Run EventBridge E2E test
+        run: |
+          python scripts/ci_e2e_smoke.py \
+            --gateway-url "${{ env.GATEWAY_URL }}" \
+            --project "${{ env.PROJECT_NAME }}"
+
+      - name: Check quality gate
+        if: always()
+        run: |
+          echo "=== 质量门禁检查 ==="
+
+          # 检查 Gateway 日志
+          if [ -f gateway.log ]; then
+            echo "--- Gateway 日志 (最后 50 行) ---"
+            tail -50 gateway.log
+            echo "---"
+          fi
+
+          # 检查截图目录
+          if [ -d test_screenshots ]; then
+            echo "Screenshots: $(ls test_screenshots/ 2>/dev/null | wc -l) files"
+          fi
+
+      - name: Collect artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: |
+            gateway.log
+            test_screenshots/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # 停止 Gateway
+          if [ -f gateway.pid ]; then
+            kill $(cat gateway.pid) 2>/dev/null || true
+            rm gateway.pid
+          fi
+          echo "Cleanup done"

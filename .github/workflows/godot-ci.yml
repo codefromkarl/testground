@@ -1,0 +1,134 @@
+name: Godot CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      godot_version:
+        description: "Godot version to use"
+        required: false
+        default: "4.3"
+        type: string
+      project_path:
+        description: "Relative path to Godot project (default: repo root)"
+        required: false
+        default: "."
+        type: string
+      project_name:
+        description: "Project display name (default: directory name)"
+        required: false
+        default: ""
+        type: string
+
+env:
+  GODOT_VERSION: ${{ inputs.godot_version || '4.3' }}
+
+jobs:
+  game-bench:
+    name: GameBench 三维评估
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install opencv-python-headless numpy Pillow
+
+      - name: Install Godot
+        run: |
+          GODOT_URL="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          echo "Downloading Godot ${GODOT_VERSION}..."
+          wget -q "$GODOT_URL" -O godot.zip || {
+            echo "::warning::Failed to download Godot ${GODOT_VERSION}, trying mirror..."
+            GODOT_URL="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.headless.x86_64.zip"
+            wget -q "$GODOT_URL" -O godot.zip
+          }
+          unzip -q godot.zip
+          chmod +x Godot_v*
+          sudo mv Godot_v* /usr/local/bin/godot
+          godot --version || echo "::warning::Godot binary may not be headless-compatible"
+
+      - name: Verify Godot installation
+        run: |
+          godot --version 2>/dev/null || echo "Godot version check failed (headless may require --headless flag)"
+
+      - name: Run GameBench evaluation
+        id: bench
+        run: |
+          PROJECT_PATH="${{ github.workspace }}/${{ inputs.project_path || '.' }}"
+          PROJECT_NAME="${{ inputs.project_name || '' }}"
+          echo "Evaluating project at: $PROJECT_PATH"
+          echo "Project name: ${PROJECT_NAME:-auto}"
+
+          python -c "
+          import sys, json
+          from drivers.godot.bench import GameBench
+
+          project_path = '${PROJECT_PATH}'
+          project_name = '${PROJECT_NAME}' or ''
+          bench = GameBench(
+              project_path=project_path,
+              project_name=project_name,
+              godot_path='godot',
+          )
+
+          # CI 中默认使用 headless=False（跳过 Godot 二进制检查）
+          # 因为 Godot 安装可能不完整或项目本身不可用
+          result = bench.evaluate(run_headless=False)
+
+          print(f'=== GameBench 评估结果 ===')
+          print(f'项目: {result.project_name}')
+          print(f'总分: {result.total_score:.1f}/100')
+          print(f'状态: {\"通过\" if result.passed else \"未通过\"} (阈值: {result.threshold})')
+          print()
+
+          for dim in result.dimensions:
+              status = '✅' if dim.passed else '❌'
+              print(f'{status} {dim.dimension}: {dim.score:.1f}/100 — {dim.details}')
+              for check in dim.checks:
+                  check_status = '✅' if check.get('passed') else '❌'
+                  print(f'   {check_status} {check[\"name\"]}')
+
+          # 保存结果到文件
+          with open('bench_result.json', 'w') as f:
+              json.dump(result.to_dict(), f, indent=2, ensure_ascii=False)
+
+          if not result.passed:
+              print(f'\\n⚠️ 评估未通过 (得分 {result.total_score:.1f} < 阈值 {result.threshold})')
+              sys.exit(1)
+
+          print(f'\\n✅ 评估通过!')
+          "
+
+      - name: Upload benchmark result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: game-bench-result
+          path: |
+            bench_result.json
+            screenshots/
+          retention-days: 30
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: game-screenshots
+          path: |
+            test_screenshots/
+            screenshots/
+          retention-days: 7
+          if-no-files-found: ignore

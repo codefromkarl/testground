@@ -47,6 +47,9 @@ RECON_SCHEMA: Dict[str, Any] = {
                             "semantic_evaluator",
                             "coverage_analyzer",
                             "performance_analyzer",
+                            "scene_anomaly_agent",
+                            "visual_regression_agent",
+                            "game_state_agent",
                         ],
                     },
                     "scope_hint": {
@@ -104,6 +107,9 @@ HUNT_SCHEMA: Dict[str, Any] = {
                             "race_condition",
                             "resource_leak",
                             "test_isolation",
+                            "scene_anomaly",
+                            "visual_regression",
+                            "game_state_anomaly",
                         ],
                     },
                     "severity": {

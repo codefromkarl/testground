@@ -72,6 +72,8 @@ class Storage:
 
     def __init__(self, db_path: str = "test_observability.db") -> None:
         self.db_path = db_path
+        self._in_memory = db_path == ":memory:"
+        self._conn: Optional[sqlite3.Connection] = None
         self._init_db()
 
     def _init_db(self) -> None:
@@ -82,16 +84,29 @@ class Storage:
     @contextmanager
     def _connect(self) -> Generator[sqlite3.Connection, None, None]:
         """获取数据库连接"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+        if self._in_memory:
+            # 内存数据库使用单一连接
+            if self._conn is None:
+                self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                self._conn.row_factory = sqlite3.Row
+            conn = self._conn
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        else:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
 
     # ─── 事件操作 ──────────────────────────────────────────
 

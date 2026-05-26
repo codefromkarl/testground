@@ -153,6 +153,7 @@ class RuleBasedAnalyzer:
                     "priority": 3,
                 }
             )
+            task_idx += 1
 
         # 事件间隔异常时加性能分析
         if total > 5:
@@ -165,6 +166,57 @@ class RuleBasedAnalyzer:
                     "priority": 3,
                 }
             )
+            task_idx += 1
+
+        # ─── Godot 专属 Agent 分派 ───────────────────────
+        has_godot = "godot_e2e" in frameworks or "godot_driver" in frameworks or "gdunit4" in frameworks
+        has_game_events = any(t.startswith("game.") for t in type_counts)
+        has_visual_events = (
+            type_counts.get("assert.fail", 0) > 0
+            and any(
+                e.get("data", {}).get("assertion_type") == "visual_template"
+                for e in events
+                if e["type"] == "assert.fail"
+            )
+        )
+        has_debug_events = any(t.startswith("debug.") for t in type_counts)
+        has_bench_events = any(t.startswith("bench.") for t in type_counts)
+
+        if has_godot or has_game_events:
+            tasks.append(
+                {
+                    "task_id": f"t_scene_{task_idx}",
+                    "agent_type": "scene_anomaly_agent",
+                    "scope_hint": "检测 Godot 场景加载异常（慢加载、循环加载、加载导致失败）",
+                    "target_events": [],
+                    "priority": 2,
+                }
+            )
+            task_idx += 1
+
+        if has_godot or has_game_events or has_debug_events or has_bench_events:
+            tasks.append(
+                {
+                    "task_id": f"t_game_state_{task_idx}",
+                    "agent_type": "game_state_agent",
+                    "scope_hint": "检测 Godot 游戏状态异常（状态回退、debug 重复、bench 低分）",
+                    "target_events": [],
+                    "priority": 2,
+                }
+            )
+            task_idx += 1
+
+        if has_visual_events:
+            tasks.append(
+                {
+                    "task_id": f"t_visual_{task_idx}",
+                    "agent_type": "visual_regression_agent",
+                    "scope_hint": "检测 Godot 视觉回归（模板匹配失败、confidence 下降）",
+                    "target_events": [],
+                    "priority": 2,
+                }
+            )
+            task_idx += 1
 
         return {
             "summary": {
@@ -192,6 +244,12 @@ class RuleBasedAnalyzer:
             findings.extend(self._detect_regressions(events))
         elif agent_type == "performance_analyzer":
             findings.extend(self._detect_perf_issues(events))
+        elif agent_type == "scene_anomaly_agent":
+            findings.extend(self._detect_scene_anomalies(events))
+        elif agent_type == "visual_regression_agent":
+            findings.extend(self._detect_visual_regressions(events))
+        elif agent_type == "game_state_agent":
+            findings.extend(self._detect_game_state_anomalies(events))
         elif agent_type == "semantic_evaluator":
             # 复用原有 SemanticEvaluator 的规则引擎部分
             from ..semantic_eval import SemanticEvaluator
@@ -405,6 +463,323 @@ class RuleBasedAnalyzer:
                         "confidence": 0.8,
                     }
                 )
+
+        return findings
+
+    def _detect_scene_anomalies(self, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """检测 Godot 场景加载异常"""
+        findings = []
+        # 收集 game.scene_load 事件，按 scene_path 索引
+        scene_loads: Dict[str, List[Dict[str, Any]]] = {}  # scene_path -> [event]
+        # 收集 test.fail 事件的 test_name 集合
+        failed_tests: set = set()
+        # 事件索引：event_id -> index
+        event_idx_map: Dict[str, int] = {}
+
+        for i, e in enumerate(events):
+            event_idx_map[e.get("event_id", "")] = i
+            if e["type"] == "game.scene_load":
+                scene_path = e.get("data", {}).get("scene_path", e.get("data", {}).get("path", ""))
+                if scene_path:
+                    scene_loads.setdefault(scene_path, []).append(e)
+            elif e["type"] == "test.fail":
+                name = e.get("data", {}).get("test_name", "")
+                if name:
+                    failed_tests.add(name)
+
+        for scene_path, loads in scene_loads.items():
+            path_hash = hash(scene_path) % 10000
+
+            # 1. 检测加载时间异常（> 5 秒）
+            for load_event in loads:
+                dur = load_event.get("data", {}).get("duration_ms", 0)
+                if dur > 5000:
+                    findings.append(
+                        {
+                            "finding_id": f"scene_slow_{path_hash:04d}",
+                            "category": "scene_anomaly",
+                            "severity": "medium" if dur < 15000 else "high",
+                            "description": f"场景 {scene_path} 加载耗时 {dur:.0f}ms（阈值 5000ms）",
+                            "evidence": {
+                                "event_ids": [load_event.get("event_id", "")],
+                                "snippet": f"scene_path={scene_path}, duration_ms={dur:.0f}",
+                            },
+                            "confidence": 0.9,
+                        }
+                    )
+
+            # 2. 检测场景加载后立即 test.fail（加载导致失败）
+            for load_event in loads:
+                load_idx = event_idx_map.get(load_event.get("event_id", ""))
+                if load_idx is None:
+                    continue
+                # 检查后续 3 个事件内是否有 test.fail
+                for j in range(load_idx + 1, min(load_idx + 4, len(events))):
+                    if events[j]["type"] == "test.fail":
+                        fail_test = events[j].get("data", {}).get("test_name", "")
+                        findings.append(
+                            {
+                                "finding_id": f"scene_fail_{path_hash:04d}",
+                                "category": "scene_anomaly",
+                                "severity": "high",
+                                "description": f"场景 {scene_path} 加载后立即触发测试失败: {fail_test}",
+                                "evidence": {
+                                    "event_ids": [
+                                        load_event.get("event_id", ""),
+                                        events[j].get("event_id", ""),
+                                    ],
+                                    "snippet": f"scene_path={scene_path}, test={fail_test}, load_then_fail",
+                                },
+                                "affected_tests": [fail_test] if fail_test else [],
+                                "confidence": 0.85,
+                            }
+                        )
+                        break  # 只记录最近的一个失败
+
+            # 3. 检测重复加载同一场景（短时间 3+ 次 = 循环加载）
+            if len(loads) >= 3:
+                timestamps = [e.get("timestamp", 0) for e in loads]
+                timestamps.sort()
+                # 检查是否有 3 次加载在 10 秒内
+                for i in range(len(timestamps) - 2):
+                    if timestamps[i + 2] - timestamps[i] < 10000:
+                        findings.append(
+                            {
+                                "finding_id": f"scene_loop_{path_hash:04d}",
+                                "category": "scene_anomaly",
+                                "severity": "critical",
+                                "description": f"场景 {scene_path} 短时间内重复加载 {len(loads)} 次（可能的循环加载 bug）",
+                                "evidence": {
+                                    "event_ids": [e.get("event_id", "") for e in loads[:5]],
+                                    "snippet": f"scene_path={scene_path}, load_count={len(loads)}, time_span={timestamps[-1] - timestamps[0]}ms",
+                                },
+                                "confidence": 0.95,
+                            }
+                        )
+                        break
+
+        return findings
+
+    def _detect_visual_regressions(self, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """检测 Godot 视觉回归"""
+        findings = []
+        # 收集所有视觉断言事件
+        visual_events: List[Dict[str, Any]] = []
+        for e in events:
+            if e["type"] in ("assert.fail", "assert.pass"):
+                if e.get("data", {}).get("assertion_type") == "visual_template":
+                    visual_events.append(e)
+
+        if not visual_events:
+            return findings
+
+        # 按 template_name 分组
+        template_events: Dict[str, List[Dict[str, Any]]] = {}
+        for e in visual_events:
+            template = e.get("data", {}).get("template_name", "unknown")
+            template_events.setdefault(template, []).append(e)
+
+        for template_name, tevents in template_events.items():
+            template_hash = hash(template_name) % 10000
+
+            # 1. 检测 assert.fail + visual_template
+            failed = [e for e in tevents if e["type"] == "assert.fail"]
+            if failed:
+                findings.append(
+                    {
+                        "finding_id": f"visual_fail_{template_hash:04d}",
+                        "category": "visual_regression",
+                        "severity": "high",
+                        "description": f"视觉模板 {template_name} 匹配失败 {len(failed)} 次",
+                        "evidence": {
+                            "event_ids": [e.get("event_id", "") for e in failed[:5]],
+                            "snippet": f"template={template_name}, fail_count={len(failed)}, total={len(tevents)}",
+                        },
+                        "confidence": 0.9,
+                    }
+                )
+
+            # 2. 检测 confidence 持续下降趋势
+            confidences = []
+            for e in tevents:
+                c = e.get("data", {}).get("confidence", None)
+                if c is not None:
+                    confidences.append((e.get("timestamp", 0), c, e.get("event_id", "")))
+
+            if len(confidences) >= 3:
+                confidences.sort(key=lambda x: x[0])
+                # 检查是否有连续 3 次下降
+                declining = all(
+                    confidences[i][1] > confidences[i + 1][1]
+                    for i in range(len(confidences) - 1)
+                )
+                # 或者总体下降超过 30%
+                first_c = confidences[0][1]
+                last_c = confidences[-1][1]
+                if declining and len(confidences) >= 3:
+                    findings.append(
+                        {
+                            "finding_id": f"visual_decline_{template_hash:04d}",
+                            "category": "visual_regression",
+                            "severity": "high",
+                            "description": f"视觉模板 {template_name} 的 confidence 连续下降: {first_c:.2f} -> {last_c:.2f}",
+                            "evidence": {
+                                "event_ids": [c[2] for c in confidences[:5]],
+                                "snippet": f"template={template_name}, confidence: {first_c:.2f} -> {last_c:.2f}, trend=declining",
+                            },
+                            "confidence": 0.85,
+                        }
+                    )
+                elif first_c - last_c > 0.3:
+                    findings.append(
+                        {
+                            "finding_id": f"visual_drop_{template_hash:04d}",
+                            "category": "visual_regression",
+                            "severity": "medium",
+                            "description": f"视觉模板 {template_name} 的 confidence 大幅下降: {first_c:.2f} -> {last_c:.2f}",
+                            "evidence": {
+                                "event_ids": [c[2] for c in confidences[:5]],
+                                "snippet": f"template={template_name}, confidence: {first_c:.2f} -> {last_c:.2f}, drop={first_c - last_c:.2f}",
+                            },
+                            "confidence": 0.8,
+                        }
+                    )
+
+            # 3. 检测同一 template 在不同 session 中匹配率变化
+            sessions: Dict[str, Dict[str, int]] = {}  # session_id -> {pass: n, fail: n}
+            for e in tevents:
+                sid = e.get("session_id", "unknown")
+                sessions.setdefault(sid, {"pass": 0, "fail": 0})
+                if e["type"] == "assert.pass":
+                    sessions[sid]["pass"] += 1
+                elif e["type"] == "assert.fail":
+                    sessions[sid]["fail"] += 1
+
+            if len(sessions) >= 2:
+                rates = []
+                for sid, counts in sessions.items():
+                    total = counts["pass"] + counts["fail"]
+                    if total > 0:
+                        rates.append((sid, counts["pass"] / total, total))
+
+                if len(rates) >= 2:
+                    rates.sort(key=lambda x: x[1])
+                    min_rate = rates[0][1]
+                    max_rate = rates[-1][1]
+                    if max_rate - min_rate > 0.3:
+                        findings.append(
+                            {
+                                "finding_id": f"visual_session_{template_hash:04d}",
+                                "category": "visual_regression",
+                                "severity": "medium",
+                                "description": f"视觉模板 {template_name} 在不同 session 中匹配率变化大: {min_rate:.0%} ~ {max_rate:.0%}",
+                                "evidence": {
+                                    "event_ids": [],
+                                    "snippet": f"template={template_name}, match_rate_range=[{min_rate:.2f}, {max_rate:.2f}], sessions={len(sessions)}",
+                                },
+                                "confidence": 0.75,
+                            }
+                        )
+
+        return findings
+
+    def _detect_game_state_anomalies(self, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """检测 Godot 游戏状态异常"""
+        findings = []
+
+        # 1. 检测 game.state_change 中的状态回退和跳跃
+        state_changes: List[Dict[str, Any]] = []
+        for e in events:
+            if e["type"] == "game.state_change":
+                state_changes.append(e)
+
+        if len(state_changes) >= 2:
+            state_changes.sort(key=lambda x: x.get("timestamp", 0))
+            # 检测状态回退：新状态 == 之前的 previous_state
+            for i in range(1, len(state_changes)):
+                prev_event = state_changes[i - 1]
+                curr_event = state_changes[i]
+                curr_state = curr_event.get("data", {}).get("state", {})
+                prev_prev_state = prev_event.get("data", {}).get("previous_state")
+                prev_state = prev_event.get("data", {}).get("state", {})
+
+                # 状态回退：当前状态 == 上上个状态
+                if prev_prev_state and curr_state == prev_prev_state:
+                    scene = curr_event.get("data", {}).get("scene_path", "unknown")
+                    findings.append(
+                        {
+                            "finding_id": f"state_rollback_{hash(str(curr_state)) % 10000:04d}",
+                            "category": "game_state_anomaly",
+                            "severity": "high",
+                            "description": f"游戏状态回退: 状态从 {prev_state} 回退到 {curr_state}",
+                            "evidence": {
+                                "event_ids": [
+                                    prev_event.get("event_id", ""),
+                                    curr_event.get("event_id", ""),
+                                ],
+                                "snippet": f"scene={scene}, state={curr_state}, previous={prev_state}, rollback_detected",
+                            },
+                            "confidence": 0.85,
+                        }
+                    )
+
+        # 2. 检测 debug.match 事件重复出现（同一 error_code 多次触发）
+        debug_matches: Dict[str, List[Dict[str, Any]]] = {}  # error_code -> [event]
+        for e in events:
+            if e["type"] == "debug.match":
+                error_code = e.get("data", {}).get("error_code", "unknown")
+                debug_matches.setdefault(error_code, []).append(e)
+
+        for error_code, match_events in debug_matches.items():
+            if len(match_events) >= 2:
+                findings.append(
+                    {
+                        "finding_id": f"debug_repeat_{hash(error_code) % 10000:04d}",
+                        "category": "game_state_anomaly",
+                        "severity": "high" if len(match_events) >= 3 else "medium",
+                        "description": f"调试匹配重复出现: error_code={error_code} 触发 {len(match_events)} 次",
+                        "evidence": {
+                            "event_ids": [e.get("event_id", "") for e in match_events[:5]],
+                            "snippet": f"error_code={error_code}, match_count={len(match_events)}",
+                        },
+                        "confidence": 0.9,
+                    }
+                )
+
+        # 3. 检测 bench.* 维度分数低于阈值
+        for e in events:
+            if e["type"].startswith("bench."):
+                score = e.get("data", {}).get("score", 1.0)
+                dimension = e.get("data", {}).get("dimension", e["type"].replace("bench.", ""))
+
+                if score < 0.3:
+                    findings.append(
+                        {
+                            "finding_id": f"bench_critical_{hash(dimension) % 10000:04d}",
+                            "category": "game_state_anomaly",
+                            "severity": "critical",
+                            "description": f"Bench 维度 {dimension} 分数极低: {score:.2f}（阈值 0.3）",
+                            "evidence": {
+                                "event_ids": [e.get("event_id", "")],
+                                "snippet": f"dimension={dimension}, score={score:.2f}, threshold=0.3",
+                            },
+                            "confidence": 0.95,
+                        }
+                    )
+                elif score < 0.6:
+                    findings.append(
+                        {
+                            "finding_id": f"bench_low_{hash(dimension) % 10000:04d}",
+                            "category": "game_state_anomaly",
+                            "severity": "high",
+                            "description": f"Bench 维度 {dimension} 分数偏低: {score:.2f}（阈值 0.6）",
+                            "evidence": {
+                                "event_ids": [e.get("event_id", "")],
+                                "snippet": f"dimension={dimension}, score={score:.2f}, threshold=0.6",
+                            },
+                            "confidence": 0.9,
+                        }
+                    )
 
         return findings
 
@@ -734,6 +1109,9 @@ class AnalysisPipeline:
                     "coverage_gap": "coverage_analyzer",
                     "assertion_gap": "coverage_analyzer",
                     "race_condition": "performance_analyzer",
+                    "scene_anomaly": "scene_anomaly_agent",
+                    "visual_regression": "visual_regression_agent",
+                    "game_state_anomaly": "game_state_agent",
                 }
                 agent_type = agent_map.get(cat, "coverage_analyzer")
                 new_tasks.append(
@@ -803,6 +1181,12 @@ class AnalysisPipeline:
             recs.append("存在覆盖盲区，建议补充测试用例")
         if "assertion_gap" in categories:
             recs.append("存在无断言的测试，建议添加验证逻辑")
+        if "scene_anomaly" in categories:
+            recs.append("存在场景加载异常，建议检查场景资源大小和加载逻辑")
+        if "visual_regression" in categories:
+            recs.append("存在视觉回归，建议检查 UI 资源变更和模板更新")
+        if "game_state_anomaly" in categories:
+            recs.append("存在游戏状态异常，建议检查状态机转换逻辑和 bench 指标")
 
         return {
             "title": "测试质量分析报告",

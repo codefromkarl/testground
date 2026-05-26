@@ -288,6 +288,7 @@ class EventBridge:
         context: Optional[str] = None,
         filename: Optional[str] = None,
         trace_id: Optional[str] = None,
+        upload_to_gateway: bool = True,
     ) -> Path:
         """截图并报告 action.screenshot 事件
 
@@ -295,6 +296,7 @@ class EventBridge:
             context: 截图上下文描述
             filename: 文件名
             trace_id: 链路追踪 ID
+            upload_to_gateway: 是否同时上传截图到 Gateway
 
         Returns:
             截图文件路径
@@ -316,6 +318,28 @@ class EventBridge:
             trace_id=trace_id,
         )
         await self._enqueue(event)
+
+        # 上传截图到 Gateway
+        if upload_to_gateway and self._client and self._session_id:
+            try:
+                # 读取图片数据并编码为 base64
+                if isinstance(filepath, Path) and filepath.exists():
+                    import base64
+                    image_data = filepath.read_bytes()
+                    base64_data = base64.b64encode(image_data).decode("ascii")
+
+                    await self._client.post(
+                        f"/sessions/{self._session_id}/screenshots",
+                        json={
+                            "base64_data": base64_data,
+                            "context": context,
+                            "filename": filename or filepath.name,
+                        },
+                    )
+            except Exception:
+                # 截图上传失败不阻塞主流程
+                self._error_count += 1
+
         return filepath
 
     async def visual_assert(

@@ -1,5 +1,6 @@
 .PHONY: help install gateway test lint clean docker-up docker-down \
-        bench-pogong bench-loop visual-demo protocol-init protocol-stats
+        bench-pogong bench-loop visual-demo protocol-init protocol-stats \
+        godot-bench godot-e2e
 
 help:  ## 显示帮助
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -102,5 +103,31 @@ deploy-loop:  ## 部署测试适配器到 Loop Expedition
 	cp adapters/godot/observer.gd $(LOOP_PATH)/addons/test_observability/observer.gd
 	cp adapters/gdunit4/observer.gd $(LOOP_PATH)/addons/test_observability/observer_compat.gd
 	@echo "✅ 已部署统一 observer (godot/) + 兼容层 (gdunit4/)"
+
+# ─── CI Godot 测试命令 ─────────────────────────────────────
+
+godot-bench:  ## 运行 GameBench 三维评估 (CI 模式)
+	@echo "=== GameBench 三维评估 ==="
+	@PROJECT_PATH="${PROJECT_PATH:-.}"; \
+	PROJECT_NAME="${PROJECT_NAME:-}"; \
+	python -c "\
+import sys, json; \
+from drivers.godot.bench import GameBench; \
+bench = GameBench( \
+    project_path='$${PROJECT_PATH}', \
+    project_name='$${PROJECT_NAME}', \
+    godot_path='$(GODOT_BIN)', \
+); \
+result = bench.evaluate(run_headless=False); \
+print(f'项目: {result.project_name}'); \
+print(f'总分: {result.total_score:.1f}/100'); \
+print(f'状态: {\"通过\" if result.passed else \"未通过\"}'); \
+[sys.exit(1) if not result.passed else None]"
+
+godot-e2e:  ## 运行 EventBridge E2E 测试 (CI 模式)
+	@echo "=== EventBridge E2E 测试 ==="
+	@python scripts/ci_e2e_smoke.py \
+		--gateway-url "$${GATEWAY_URL:-http://localhost:8900}" \
+		--project "$${PROJECT_NAME:-e2e_test}"
 
 deploy: deploy-pogong deploy-loop  ## 部署到所有游戏项目

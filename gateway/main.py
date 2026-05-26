@@ -19,7 +19,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from gateway.routes import analysis, events, projects, sessions
+from gateway.routes import screenshots
 from gateway.routes import websocket as ws_router
+from gateway.screenshot_storage import ScreenshotStorage
 from gateway.routes.websocket import ConnectionManager
 from gateway.storage import Storage
 
@@ -44,6 +46,10 @@ app.add_middleware(
 storage = Storage()
 app.state.storage = storage
 
+# 截图存储层
+screenshot_storage = ScreenshotStorage()
+app.state.screenshot_storage = screenshot_storage
+
 # WebSocket 连接管理器
 manager = ConnectionManager()
 app.state.manager = manager
@@ -54,6 +60,7 @@ app.include_router(events.router, tags=["events"])
 app.include_router(sessions.router, tags=["sessions"])
 app.include_router(analysis.router, tags=["analysis"])
 app.include_router(projects.router, tags=["projects"])
+app.include_router(screenshots.router, tags=["screenshots"])
 app.include_router(ws_router.router, tags=["websocket"])
 
 
