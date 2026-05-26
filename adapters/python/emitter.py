@@ -14,11 +14,9 @@ import httpx
 
 from schema.events import (
     EventSource,
-    TestEvent,
+    ObsEvent,
     create_bug_candidate,
     create_game_state_change,
-    create_test_end,
-    create_test_start,
 )
 
 
@@ -41,7 +39,7 @@ class UnifiedEventEmitter:
 
     # ─── 发送事件 ──────────────────────────────────────────
 
-    def emit(self, event: TestEvent) -> None:
+    def emit(self, event: ObsEvent) -> None:
         """发送单个事件到网关"""
         try:
             self._client.post(
@@ -52,7 +50,7 @@ class UnifiedEventEmitter:
             # 静默失败，不阻塞测试执行
             print(f"[EventEmitter] Failed to emit event: {e}")
 
-    def emit_batch(self, events: list[TestEvent]) -> None:
+    def emit_batch(self, events: list[ObsEvent]) -> None:
         """批量发送事件"""
         try:
             self._client.post(
@@ -107,9 +105,9 @@ class UnifiedEventEmitter:
 
     # ─── 从现有数据结构转换 ────────────────────────────────
 
-    def from_observation(self, obs: Any, context: str = "") -> TestEvent:
+    def from_observation(self, obs: Any, context: str = "") -> ObsEvent:
         """转换 RuntimeObservation 为统一事件
-        
+
         Args:
             obs: RuntimeObservation 的 Observation 对象
             context: 附加上下文描述
@@ -127,16 +125,16 @@ class UnifiedEventEmitter:
         self.emit(event)
         return event
 
-    def from_telemetry(self, telemetry: Dict[str, Any]) -> TestEvent:
+    def from_telemetry(self, telemetry: Dict[str, Any]) -> ObsEvent:
         """转换单条 telemetry 记录为统一事件
-        
+
         Args:
             telemetry: 包含 type 和其他字段的字典
         """
         event_type = telemetry.get("type", "game.state_change")
         data = {k: v for k, v in telemetry.items() if k != "type"}
 
-        event = TestEvent(
+        event = ObsEvent(
             event_id=str(uuid.uuid4()),
             session_id=self.session_id,
             timestamp=int(time.time() * 1000),
@@ -147,9 +145,9 @@ class UnifiedEventEmitter:
         self.emit(event)
         return event
 
-    def from_bug_candidate(self, bug: Any) -> TestEvent:
+    def from_bug_candidate(self, bug: Any) -> ObsEvent:
         """转换 BugCandidate 为统一事件
-        
+
         Args:
             bug: BugDiscovery 的 BugCandidate 对象
         """
@@ -164,15 +162,15 @@ class UnifiedEventEmitter:
         self.emit(event)
         return event
 
-    def from_coverage(self, tracker: Any) -> TestEvent:
+    def from_coverage(self, tracker: Any) -> ObsEvent:
         """转换 CoverageTracker 为统一事件
-        
+
         Args:
             tracker: CoverageTracker 对象
         """
         from schema.events import ObservationType
 
-        event = TestEvent(
+        event = ObsEvent(
             event_id=str(uuid.uuid4()),
             session_id=self.session_id,
             timestamp=int(time.time() * 1000),
@@ -188,15 +186,15 @@ class UnifiedEventEmitter:
         self.emit(event)
         return event
 
-    def from_gate_result(self, gate_result: Dict[str, Any]) -> TestEvent:
+    def from_gate_result(self, gate_result: Dict[str, Any]) -> ObsEvent:
         """转换 loopexpedition 的 gate_result 为统一事件
-        
+
         Args:
             gate_result: 包含 verdict 和 rules 的字典
         """
         from schema.events import ReportType
 
-        event = TestEvent(
+        event = ObsEvent(
             event_id=str(uuid.uuid4()),
             session_id=self.session_id,
             timestamp=int(time.time() * 1000),
@@ -207,9 +205,9 @@ class UnifiedEventEmitter:
         self.emit(event)
         return event
 
-    def from_test_report(self, report_path: str) -> list[TestEvent]:
+    def from_test_report(self, report_path: str) -> list[ObsEvent]:
         """从 loopexpedition 的 JSON 测试报告导入事件
-        
+
         Args:
             report_path: test_report_*.json 文件路径
         """
@@ -225,7 +223,7 @@ class UnifiedEventEmitter:
 
         # 导入各阶段结果
         for phase_name, phase_data in report.get("phases", {}).items():
-            event = TestEvent(
+            event = ObsEvent(
                 event_id=str(uuid.uuid4()),
                 session_id=self.session_id,
                 timestamp=int(time.time() * 1000),
@@ -246,7 +244,7 @@ class UnifiedEventEmitter:
         # 导入覆盖率数据
         coverage = report.get("phases", {}).get("coverage", {})
         if coverage:
-            event = TestEvent(
+            event = ObsEvent(
                 event_id=str(uuid.uuid4()),
                 session_id=self.session_id,
                 timestamp=int(time.time() * 1000),

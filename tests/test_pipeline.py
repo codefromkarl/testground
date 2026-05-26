@@ -1,27 +1,32 @@
 """分析流水线测试 — 验证 audit 风格的多阶段架构"""
 
 import json
+import sys
 import time
 import uuid
 from pathlib import Path
 
 import pytest
-import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from analyzers.pipeline.agents import AGENT_PROMPTS, get_agent_prompt
+from analyzers.pipeline.orchestrator import AnalysisPipeline, PipelineConfig, RuleBasedAnalyzer
 from analyzers.pipeline.schemas import SCHEMAS, get_schema, schema_as_text
 from analyzers.pipeline.state import PipelineState
-from analyzers.pipeline.orchestrator import AnalysisPipeline, PipelineConfig, RuleBasedAnalyzer
-from analyzers.pipeline.agents import get_agent_prompt, AGENT_PROMPTS
-
 
 # ─── 测试数据工厂 ─────────────────────────────────────────
 
 
-def make_event(event_type: str, test_name: str = "", session_id: str = "sess-1",
-               project: str = "test-proj", framework: str = "vitest",
-               duration_ms: float = 0, **extra) -> dict:
+def make_event(
+    event_type: str,
+    test_name: str = "",
+    session_id: str = "sess-1",
+    project: str = "test-proj",
+    framework: str = "vitest",
+    duration_ms: float = 0,
+    **extra,
+) -> dict:
     """创建测试事件"""
     event = {
         "event_id": f"evt_{uuid.uuid4().hex[:8]}",
@@ -39,8 +44,7 @@ def make_event(event_type: str, test_name: str = "", session_id: str = "sess-1",
     return event
 
 
-def make_events_batch(passed: int = 5, failed: int = 1, flaky: int = 0,
-                      slow: int = 0, project: str = "proj-a") -> list:
+def make_events_batch(passed: int = 5, failed: int = 1, flaky: int = 0, slow: int = 0, project: str = "proj-a") -> list:
     """创建一批测试事件"""
     events = []
     for i in range(passed):
@@ -147,20 +151,26 @@ class TestPipelineState:
 
     def test_add_and_get_pending_tasks(self, state):
         state.create_run("sess-1", "run-1")
-        state.add_task("run-1", {
-            "task_id": "t1",
-            "agent_type": "flaky_detector",
-            "scope_hint": "检测 flaky",
-            "target_events": ["e1"],
-            "priority": 1,
-        })
-        state.add_task("run-1", {
-            "task_id": "t2",
-            "agent_type": "coverage_analyzer",
-            "scope_hint": "检测覆盖",
-            "target_events": [],
-            "priority": 3,
-        })
+        state.add_task(
+            "run-1",
+            {
+                "task_id": "t1",
+                "agent_type": "flaky_detector",
+                "scope_hint": "检测 flaky",
+                "target_events": ["e1"],
+                "priority": 1,
+            },
+        )
+        state.add_task(
+            "run-1",
+            {
+                "task_id": "t2",
+                "agent_type": "coverage_analyzer",
+                "scope_hint": "检测覆盖",
+                "target_events": [],
+                "priority": 3,
+            },
+        )
 
         pending = state.get_pending_tasks("run-1")
         assert len(pending) == 2
@@ -169,31 +179,41 @@ class TestPipelineState:
 
     def test_update_task_status(self, state):
         state.create_run("sess-1", "run-1")
-        state.add_task("run-1", {
-            "task_id": "t1",
-            "agent_type": "flaky_detector",
-            "scope_hint": "test",
-            "target_events": [],
-        })
+        state.add_task(
+            "run-1",
+            {
+                "task_id": "t1",
+                "agent_type": "flaky_detector",
+                "scope_hint": "test",
+                "target_events": [],
+            },
+        )
         state.update_task_status("t1", "completed")
         pending = state.get_pending_tasks("run-1")
         assert len(pending) == 0
 
     def test_add_and_get_findings(self, state):
         state.create_run("sess-1", "run-1")
-        state.add_task("run-1", {
-            "task_id": "t1",
-            "agent_type": "flaky_detector",
-            "scope_hint": "test",
-            "target_events": [],
-        })
-        state.add_finding("run-1", "t1", {
-            "finding_id": "f1",
-            "category": "flaky_test",
-            "severity": "high",
-            "description": "test is flaky",
-            "evidence": {"event_ids": ["e1"], "snippet": "pass then fail"},
-        })
+        state.add_task(
+            "run-1",
+            {
+                "task_id": "t1",
+                "agent_type": "flaky_detector",
+                "scope_hint": "test",
+                "target_events": [],
+            },
+        )
+        state.add_finding(
+            "run-1",
+            "t1",
+            {
+                "finding_id": "f1",
+                "category": "flaky_test",
+                "severity": "high",
+                "description": "test is flaky",
+                "evidence": {"event_ids": ["e1"], "snippet": "pass then fail"},
+            },
+        )
 
         unvalidated = state.get_unvalidated_findings("run-1")
         assert len(unvalidated) == 1
@@ -202,15 +222,26 @@ class TestPipelineState:
 
     def test_set_validation(self, state):
         state.create_run("sess-1", "run-1")
-        state.add_task("run-1", {
-            "task_id": "t1", "agent_type": "flaky_detector",
-            "scope_hint": "test", "target_events": [],
-        })
-        state.add_finding("run-1", "t1", {
-            "finding_id": "f1", "category": "flaky_test",
-            "severity": "high", "description": "flaky",
-            "evidence": {"event_ids": [], "snippet": ""},
-        })
+        state.add_task(
+            "run-1",
+            {
+                "task_id": "t1",
+                "agent_type": "flaky_detector",
+                "scope_hint": "test",
+                "target_events": [],
+            },
+        )
+        state.add_finding(
+            "run-1",
+            "t1",
+            {
+                "finding_id": "f1",
+                "category": "flaky_test",
+                "severity": "high",
+                "description": "flaky",
+                "evidence": {"event_ids": [], "snippet": ""},
+            },
+        )
 
         state.set_validation("f1", "confirmed", {"verdict": "confirmed", "rationale": "evidence supports"})
 
@@ -220,15 +251,26 @@ class TestPipelineState:
 
     def test_rejected_findings_excluded(self, state):
         state.create_run("sess-1", "run-1")
-        state.add_task("run-1", {
-            "task_id": "t1", "agent_type": "flaky_detector",
-            "scope_hint": "test", "target_events": [],
-        })
-        state.add_finding("run-1", "t1", {
-            "finding_id": "f1", "category": "flaky_test",
-            "severity": "high", "description": "flaky",
-            "evidence": {"event_ids": [], "snippet": ""},
-        })
+        state.add_task(
+            "run-1",
+            {
+                "task_id": "t1",
+                "agent_type": "flaky_detector",
+                "scope_hint": "test",
+                "target_events": [],
+            },
+        )
+        state.add_finding(
+            "run-1",
+            "t1",
+            {
+                "finding_id": "f1",
+                "category": "flaky_test",
+                "severity": "high",
+                "description": "flaky",
+                "evidence": {"event_ids": [], "snippet": ""},
+            },
+        )
 
         state.set_validation("f1", "rejected", {"verdict": "rejected", "rationale": "not actually flaky"})
 
@@ -257,15 +299,26 @@ class TestPipelineState:
     def test_previous_findings(self, state):
         # Run 1
         state.create_run("sess-1", "run_old")
-        state.add_task("run_old", {
-            "task_id": "t1", "agent_type": "flaky_detector",
-            "scope_hint": "test", "target_events": [],
-        })
-        state.add_finding("run_old", "t1", {
-            "finding_id": "f_old", "category": "flaky_test",
-            "severity": "high", "description": "old flaky",
-            "evidence": {"event_ids": [], "snippet": ""},
-        })
+        state.add_task(
+            "run_old",
+            {
+                "task_id": "t1",
+                "agent_type": "flaky_detector",
+                "scope_hint": "test",
+                "target_events": [],
+            },
+        )
+        state.add_finding(
+            "run_old",
+            "t1",
+            {
+                "finding_id": "f_old",
+                "category": "flaky_test",
+                "severity": "high",
+                "description": "old flaky",
+                "evidence": {"event_ids": [], "snippet": ""},
+            },
+        )
         state.set_validation("f_old", "confirmed", {"verdict": "confirmed"})
         state.finish_run("run_old", "completed")
 
@@ -362,9 +415,17 @@ class TestAgentPrompts:
     """Agent prompt 定义测试"""
 
     def test_all_agent_types_have_prompts(self):
-        expected = ["recon", "flaky_detector", "regression_detector",
-                    "semantic_evaluator", "coverage_analyzer",
-                    "performance_analyzer", "validate", "feedback", "report"]
+        expected = [
+            "recon",
+            "flaky_detector",
+            "regression_detector",
+            "semantic_evaluator",
+            "coverage_analyzer",
+            "performance_analyzer",
+            "validate",
+            "feedback",
+            "report",
+        ]
         for agent_type in expected:
             assert agent_type in AGENT_PROMPTS, f"Missing prompt for {agent_type}"
 
@@ -505,6 +566,7 @@ class TestBackwardCompatibility:
 
     def test_bug_discovery_still_works(self):
         from analyzers.bug_discovery import BugDiscoveryAnalyzer
+
         analyzer = BugDiscoveryAnalyzer()
         events = make_events_batch(passed=3, failed=2)
         result = analyzer.analyze(events)
@@ -512,6 +574,7 @@ class TestBackwardCompatibility:
 
     def test_quality_guard_still_works(self):
         from analyzers.quality_guard import QualityGuard
+
         analyzer = QualityGuard()
         events = make_events_batch(passed=3)
         result = analyzer.analyze(events)
@@ -519,6 +582,7 @@ class TestBackwardCompatibility:
 
     def test_anomaly_detector_still_works(self):
         from analyzers.anomaly_detector import AnomalyDetector
+
         analyzer = AnomalyDetector()
         events = make_events_batch(passed=3, project="proj-a")
         result = analyzer.analyze(events)

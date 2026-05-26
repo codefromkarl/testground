@@ -25,7 +25,7 @@ interface EventSource {
   suite?: string;
 }
 
-interface TestEvent {
+interface ObsEvent {
   event_id: string;
   session_id: string;
   timestamp: number;
@@ -162,7 +162,7 @@ export class ObservabilityReporter implements Reporter {
     };
   }
 
-  private _emit(event: TestEvent): void {
+  private _emit(event: ObsEvent): void {
     try {
       // 使用同步 fetch（Vitest reporter 回调中 async 可能有问题）
       // 降级为 fire-and-forget

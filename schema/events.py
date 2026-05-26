@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-
 # ─── 事件类型枚举 ──────────────────────────────────────────
 
 
@@ -55,6 +54,27 @@ class ObservationType(str, Enum):
     OBSERVATION_SNAPSHOT = "observation.snapshot"
     OBSERVATION_COVERAGE = "observation.coverage"
     OBSERVATION_ANOMALY = "observation.anomaly"
+    OBSERVATION_STATE_DIFF = "observation.state_diff"
+    OBSERVATION_INPUT_TRACE = "observation.input_trace"
+    OBSERVATION_CAUSE_TRACE = "observation.cause_trace"
+
+
+class DebugEventType(str, Enum):
+    """调试协议事件 (借鉴 OpenGame Debug Skill)"""
+
+    DEBUG_ITERATION = "debug.iteration"
+    DEBUG_MATCH = "debug.match"
+    DEBUG_REPAIR = "debug.repair"
+    DEBUG_EVOLVE = "debug.evolve"
+
+
+class BenchEventType(str, Enum):
+    """评估事件 (借鉴 OpenGame-Bench)"""
+
+    BENCH_BUILD_HEALTH = "bench.build_health"
+    BENCH_VISUAL_USABILITY = "bench.visual_usability"
+    BENCH_INTENT_ALIGNMENT = "bench.intent_alignment"
+    BENCH_RESULT = "bench.result"
 
 
 class ReportType(str, Enum):
@@ -64,7 +84,7 @@ class ReportType(str, Enum):
 
 
 # 所有事件类型的联合（用于类型提示）
-TestEventType = str  # 实际值为上述枚举的 value
+ObsEventType = str  # 实际值为上述枚举的 value
 
 
 # ─── 框架和项目标识 ────────────────────────────────────────
@@ -75,6 +95,8 @@ class Framework(str, Enum):
     GDUNIT4 = "gdunit4"
     PLAYWRIGHT = "playwright"
     AIRTEST = "airtest"
+    GODOT_E2E = "godot_e2e"
+    GODOT_DRIVER = "godot_driver"
     CUSTOM = "custom"
 
 
@@ -84,6 +106,7 @@ class Framework(str, Enum):
 @dataclass
 class EventSource:
     """事件来源"""
+
     framework: str  # Framework 枚举值
     project: str
     file: Optional[str] = None
@@ -105,13 +128,14 @@ class EventSource:
 
 
 @dataclass
-class TestEvent:
+class ObsEvent:
     """统一测试事件"""
+
     event_id: str
     session_id: str
     timestamp: int  # Unix ms
     source: EventSource
-    type: str  # TestEventType 枚举值
+    type: str  # ObsEventType 枚举值
     data: Dict[str, Any]
     parent_event_id: Optional[str] = None
     trace_id: Optional[str] = None
@@ -136,8 +160,9 @@ class TestEvent:
 
 
 @dataclass
-class TestSession:
+class ObsSession:
     """测试会话"""
+
     session_id: str
     project: str
     framework: str
@@ -177,6 +202,7 @@ class TestSession:
 @dataclass
 class AnalysisResult:
     """AI 分析结果"""
+
     analysis_id: str
     session_id: str
     timestamp: int
@@ -219,9 +245,9 @@ def create_test_start(
     test_name: str,
     full_name: str,
     trace_id: Optional[str] = None,
-) -> TestEvent:
+) -> ObsEvent:
     """创建 test.start 事件"""
-    return TestEvent(
+    return ObsEvent(
         event_id=_generate_id(),
         session_id=session_id,
         timestamp=_timestamp(),
@@ -240,9 +266,9 @@ def create_test_end(
     duration_ms: int,
     errors: Optional[List[Dict[str, Any]]] = None,
     trace_id: Optional[str] = None,
-) -> TestEvent:
+) -> ObsEvent:
     """创建 test.end / test.fail 事件"""
-    return TestEvent(
+    return ObsEvent(
         event_id=_generate_id(),
         session_id=session_id,
         timestamp=_timestamp(),
@@ -267,9 +293,9 @@ def create_assertion(
     actual: Any = None,
     message: Optional[str] = None,
     trace_id: Optional[str] = None,
-) -> TestEvent:
+) -> ObsEvent:
     """创建 assert.* 事件"""
-    return TestEvent(
+    return ObsEvent(
         event_id=_generate_id(),
         session_id=session_id,
         timestamp=_timestamp(),
@@ -292,9 +318,9 @@ def create_agent_tool_call(
     tool_name: str,
     tool_input: Any,
     trace_id: Optional[str] = None,
-) -> TestEvent:
+) -> ObsEvent:
     """创建 agent.tool_call 事件"""
-    return TestEvent(
+    return ObsEvent(
         event_id=_generate_id(),
         session_id=session_id,
         timestamp=_timestamp(),
@@ -318,9 +344,9 @@ def create_agent_tool_result(
     success: bool,
     error: Optional[str] = None,
     trace_id: Optional[str] = None,
-) -> TestEvent:
+) -> ObsEvent:
     """创建 agent.tool_result 事件"""
-    return TestEvent(
+    return ObsEvent(
         event_id=_generate_id(),
         session_id=session_id,
         timestamp=_timestamp(),
@@ -345,9 +371,9 @@ def create_game_state_change(
     state: Dict[str, Any],
     previous_state: Optional[Dict[str, Any]] = None,
     trace_id: Optional[str] = None,
-) -> TestEvent:
+) -> ObsEvent:
     """创建 game.state_change 事件"""
-    return TestEvent(
+    return ObsEvent(
         event_id=_generate_id(),
         session_id=session_id,
         timestamp=_timestamp(),
@@ -371,9 +397,9 @@ def create_bug_candidate(
     evidence: Dict[str, Any],
     confidence: float = 0.8,
     trace_id: Optional[str] = None,
-) -> TestEvent:
+) -> ObsEvent:
     """创建 report.bug_candidate 事件"""
-    return TestEvent(
+    return ObsEvent(
         event_id=_generate_id(),
         session_id=session_id,
         timestamp=_timestamp(),
@@ -396,9 +422,9 @@ def create_gate_result(
     verdict: str,
     rules: Dict[str, Any],
     trace_id: Optional[str] = None,
-) -> TestEvent:
+) -> ObsEvent:
     """创建 report.gate_result 事件"""
-    return TestEvent(
+    return ObsEvent(
         event_id=_generate_id(),
         session_id=session_id,
         timestamp=_timestamp(),
@@ -407,6 +433,89 @@ def create_gate_result(
         data={
             "verdict": verdict,
             "rules": rules,
+        },
+        trace_id=trace_id,
+    )
+
+
+# ─── Godot 游戏测试事件工厂 ──────────────────────────────────
+
+
+def create_visual_assertion(
+    session_id: str,
+    source: EventSource,
+    template_name: str,
+    matched: bool,
+    confidence: float = 0.0,
+    position: Optional[List[int]] = None,
+    trace_id: Optional[str] = None,
+) -> ObsEvent:
+    """创建视觉断言事件 (Airtest 风格)"""
+    return ObsEvent(
+        event_id=_generate_id(),
+        session_id=session_id,
+        timestamp=_timestamp(),
+        source=source,
+        type=AssertionType.ASSERT_PASS.value if matched else AssertionType.ASSERT_FAIL.value,
+        data={
+            "assertion_type": "visual_template",
+            "template_name": template_name,
+            "matched": matched,
+            "confidence": confidence,
+            "position": position,
+        },
+        trace_id=trace_id,
+    )
+
+
+def create_debug_event(
+    session_id: str,
+    source: EventSource,
+    debug_type: str,
+    entry_id: Optional[str] = None,
+    error_code: Optional[str] = None,
+    error_message: Optional[str] = None,
+    fix_description: Optional[str] = None,
+    trace_id: Optional[str] = None,
+) -> ObsEvent:
+    """创建调试协议事件 (OpenGame Debug Skill 风格)"""
+    return ObsEvent(
+        event_id=_generate_id(),
+        session_id=session_id,
+        timestamp=_timestamp(),
+        source=source,
+        type=debug_type,
+        data={
+            "entry_id": entry_id,
+            "error_code": error_code,
+            "error_message": error_message,
+            "fix_description": fix_description,
+        },
+        trace_id=trace_id,
+    )
+
+
+def create_bench_event(
+    session_id: str,
+    source: EventSource,
+    dimension: str,
+    score: float,
+    passed: bool,
+    checks: Optional[List[Dict[str, Any]]] = None,
+    trace_id: Optional[str] = None,
+) -> ObsEvent:
+    """创建评估事件 (OpenGame-Bench 风格)"""
+    return ObsEvent(
+        event_id=_generate_id(),
+        session_id=session_id,
+        timestamp=_timestamp(),
+        source=source,
+        type=f"bench.{dimension}",
+        data={
+            "dimension": dimension,
+            "score": score,
+            "passed": passed,
+            "checks": checks or [],
         },
         trace_id=trace_id,
     )

@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import httpx
@@ -92,12 +92,6 @@ class LLMClient:
             headers = {"Content-Type": "application/json"}
             if self.config.api_key:
                 headers["Authorization"] = f"Bearer {self.config.api_key}"
-    @property
-    def client(self) -> httpx.Client:
-        if self._client is None or self._client.is_closed:
-            headers = {"Content-Type": "application/json"}
-            if self.config.api_key:
-                headers["Authorization"] = f"Bearer {self.config.api_key}"
             # httpx 0.28.x 的 proxy=None 仍读环境变量，SOCKS 会炸
             # 直接在创建时清理代理环境变量
             old_proxy = {}
@@ -113,7 +107,6 @@ class LLMClient:
                 )
             finally:
                 os.environ.update(old_proxy)
-        return self._client
         return self._client
 
     def chat(self, prompt: str, system: str = "") -> str:
@@ -148,9 +141,7 @@ class LLMClient:
                 data = response.json()
                 return data["choices"][0]["message"]["content"]
             except httpx.HTTPStatusError as e:
-                last_error = LLMError(
-                    f"HTTP {e.response.status_code}: {e.response.text[:200]}"
-                )
+                last_error = LLMError(f"HTTP {e.response.status_code}: {e.response.text[:200]}")
                 logger.warning("LLM 调用失败 (attempt %d): %s", attempt + 1, last_error)
             except httpx.RequestError as e:
                 last_error = LLMError(f"请求失败: {e}")
@@ -196,6 +187,7 @@ class LLMClient:
 
 class LLMError(Exception):
     """LLM 调用异常"""
+
     pass
 
 

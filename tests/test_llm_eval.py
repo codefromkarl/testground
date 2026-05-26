@@ -4,17 +4,20 @@
 """
 
 import json
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from schema.events import EventSource, TestEvent, create_agent_tool_call
 from analyzers.llm_client import LLMClient, LLMConfig, LLMError, is_llm_available
-from analyzers.semantic_eval import SemanticEvaluator, EVAL_PROMPT_TEMPLATE
+from analyzers.semantic_eval import EVAL_PROMPT_TEMPLATE, SemanticEvaluator
+from schema.events import EventSource, ObsEvent, create_agent_tool_call
+
+# 标记为 llm 测试，需要 LLM 网关运行
+pytestmark = pytest.mark.llm
 
 
 # ─── LLMClient 测试 ─────────────────────────────────────────
@@ -55,17 +58,13 @@ class TestLLMClient:
     """测试 LLM 客户端"""
 
     def _make_client(self) -> LLMClient:
-        return LLMClient(
-            config=LLMConfig(api_base="http://test.api/v1", api_key="sk-test")
-        )
+        return LLMClient(config=LLMConfig(api_base="http://test.api/v1", api_key="sk-test"))
 
     def test_chat_success(self):
         client = self._make_client()
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "Hello!"}}]
-        }
+        mock_response.json.return_value = {"choices": [{"message": {"content": "Hello!"}}]}
         mock_response.raise_for_status = MagicMock()
 
         with patch.object(client.client, "post", return_value=mock_response) as mock_post:
@@ -82,9 +81,7 @@ class TestLLMClient:
         client = self._make_client()
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "OK"}}]
-        }
+        mock_response.json.return_value = {"choices": [{"message": {"content": "OK"}}]}
         mock_response.raise_for_status = MagicMock()
 
         with patch.object(client.client, "post", return_value=mock_response):
@@ -99,9 +96,7 @@ class TestLLMClient:
         client = self._make_client()
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": '{"score": 0.8, "reason": "good"}'}}]
-        }
+        mock_response.json.return_value = {"choices": [{"message": {"content": '{"score": 0.8, "reason": "good"}'}}]}
         mock_response.raise_for_status = MagicMock()
 
         with patch.object(client.client, "post", return_value=mock_response):
@@ -129,6 +124,7 @@ class TestLLMClient:
         mock_response.raise_for_status.side_effect = Exception("HTTP Error")
 
         import httpx
+
         mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
             "500", request=MagicMock(), response=mock_response
         )
@@ -141,9 +137,7 @@ class TestLLMClient:
         client = self._make_client()
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "not json at all"}}]
-        }
+        mock_response.json.return_value = {"choices": [{"message": {"content": "not json at all"}}]}
         mock_response.raise_for_status = MagicMock()
 
         with patch.object(client.client, "post", return_value=mock_response):
@@ -190,7 +184,7 @@ class TestSemanticEvaluatorLLM:
         source = EventSource(framework="vitest", project="test")
         return [
             create_agent_tool_call("sess", source, tool_name, input_data).to_dict(),
-            TestEvent(
+            ObsEvent(
                 event_id="evt-result",
                 session_id="sess",
                 timestamp=1000,
@@ -208,10 +202,7 @@ class TestSemanticEvaluatorLLM:
     def test_llm_evaluation_low_quality(self):
         """LLM 评估低质量输出"""
         mock_client = MagicMock(spec=LLMClient)
-        mock_client.chat_json.return_value = {
-            "score": 0.3,
-            "reason": "输出不完整，缺少关键信息"
-        }
+        mock_client.chat_json.return_value = {"score": 0.3, "reason": "输出不完整，缺少关键信息"}
 
         evaluator = SemanticEvaluator(llm_client=mock_client)
         assert evaluator.uses_llm is True
@@ -230,10 +221,7 @@ class TestSemanticEvaluatorLLM:
     def test_llm_evaluation_good_quality(self):
         """LLM 评估高质量输出 — 不产生 findings"""
         mock_client = MagicMock(spec=LLMClient)
-        mock_client.chat_json.return_value = {
-            "score": 0.9,
-            "reason": "输出完整且准确"
-        }
+        mock_client.chat_json.return_value = {"score": 0.9, "reason": "输出完整且准确"}
 
         evaluator = SemanticEvaluator(llm_client=mock_client)
         events = self._make_events("search", "query", "complete answer")
@@ -350,15 +338,7 @@ class TestSemanticEvaluatorIntegration:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "choices": [
-                {
-                    "message": {
-                        "content": json.dumps(
-                            {"score": 0.4, "reason": "输出过于简短，缺乏细节"}
-                        )
-                    }
-                }
-            ]
+            "choices": [{"message": {"content": json.dumps({"score": 0.4, "reason": "输出过于简短，缺乏细节"})}}]
         }
         mock_response.raise_for_status = MagicMock()
 
@@ -367,10 +347,8 @@ class TestSemanticEvaluatorIntegration:
 
         source = EventSource(framework="vitest", project="test")
         events = [
-            create_agent_tool_call(
-                "sess", source, "search_hotel", {"city": "杭州"}
-            ).to_dict(),
-            TestEvent(
+            create_agent_tool_call("sess", source, "search_hotel", {"city": "杭州"}).to_dict(),
+            ObsEvent(
                 event_id="evt-result",
                 session_id="sess",
                 timestamp=1000,

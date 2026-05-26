@@ -10,6 +10,7 @@ from typing import Any, Dict, List
 @dataclass
 class AnalysisResult:
     """分析结果"""
+
     analyzer: str
     session_id: str
     findings: List[Dict[str, Any]]

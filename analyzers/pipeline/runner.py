@@ -12,12 +12,10 @@ import json
 import logging
 import time
 import uuid
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from ..base import AnalysisResult
-from ..llm_client import LLMClient, LLMConfig, LLMError
+from ..llm_client import LLMClient, LLMConfig
 from .schemas import schema_as_text
 
 logger = logging.getLogger(__name__)
@@ -26,6 +24,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AgentResult:
     """单次 Agent 执行的结果"""
+
     payload: Dict[str, Any]
     input_tokens: int
     output_tokens: int
@@ -37,6 +36,7 @@ class AgentResult:
 
 class SchemaValidationError(Exception):
     """Schema 验证失败（repair 后仍不通过）"""
+
     pass
 
 
@@ -234,6 +234,7 @@ class AgentRunner:
 # 为了避免循环导入，直接在此定义 get_schema
 def get_schema(stage: str) -> Dict[str, Any]:
     from .schemas import SCHEMAS
+
     if stage not in SCHEMAS:
         raise ValueError(f"Unknown stage: {stage}")
     return SCHEMAS[stage]

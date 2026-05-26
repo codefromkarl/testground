@@ -7,8 +7,8 @@
 """
 
 from .orchestrator import AnalysisPipeline, PipelineConfig
+from .runner import AgentResult, AgentRunner
 from .state import PipelineState
-from .runner import AgentRunner, AgentResult
 
 __all__ = [
     "AnalysisPipeline",

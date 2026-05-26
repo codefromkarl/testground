@@ -1,16 +1,11 @@
 """WebSocket 实时事件流测试"""
 
-import json
-import time
-import uuid
+import sys
 from pathlib import Path
 
 import pytest
-import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from schema.events import EventSource, create_test_start, create_test_end
 
 
 # ─── ConnectionManager 单元测试 ─────────────────────────────
@@ -22,11 +17,12 @@ class TestConnectionManager:
     @pytest.fixture
     def manager(self):
         from gateway.main import ConnectionManager
+
         return ConnectionManager()
 
     @pytest.mark.asyncio
     async def test_connect_accepts_websocket(self, manager):
-        from unittest.mock import AsyncMock, MagicMock
+        from unittest.mock import AsyncMock
 
         ws = AsyncMock()
         await manager.connect(ws, "sess-1")
@@ -126,6 +122,7 @@ class TestConnectionManager:
             assert manager.get_connection_count() == 2
 
         import asyncio
+
         asyncio.get_event_loop().run_until_complete(_test())
 
 
@@ -138,7 +135,9 @@ class TestWebSocketIntegration:
     @pytest.fixture
     def client(self, tmp_path):
         from fastapi.testclient import TestClient
+
         from gateway.main import app, storage
+
         storage.db_path = str(tmp_path / "test_ws.db")
         storage._init_db()
         return TestClient(app)
@@ -154,12 +153,15 @@ class TestWebSocketIntegration:
             assert connected["session_id"] == session_id
 
             # 通过 HTTP POST 事件
-            resp = client.post("/events", json={
-                "session_id": session_id,
-                "source": {"framework": "vitest", "project": "test"},
-                "type": "test.start",
-                "data": {"test_name": "ws_test"},
-            })
+            resp = client.post(
+                "/events",
+                json={
+                    "session_id": session_id,
+                    "source": {"framework": "vitest", "project": "test"},
+                    "type": "test.start",
+                    "data": {"test_name": "ws_test"},
+                },
+            )
             assert resp.status_code == 200
 
             # WebSocket 应收到该事件
@@ -172,28 +174,32 @@ class TestWebSocketIntegration:
         """测试按事件类型过滤"""
         session_id = "ws-filter-1"
 
-        with client.websocket_connect(
-            f"/ws/events/{session_id}?event_types=test.fail,test.end"
-        ) as ws:
+        with client.websocket_connect(f"/ws/events/{session_id}?event_types=test.fail,test.end") as ws:
             # 收到连接确认
             connected = ws.receive_json()
             assert connected["type"] == "connected"
 
             # POST 一个 test.start（应被过滤）
-            client.post("/events", json={
-                "session_id": session_id,
-                "source": {"framework": "vitest", "project": "test"},
-                "type": "test.start",
-                "data": {"test_name": "t1"},
-            })
+            client.post(
+                "/events",
+                json={
+                    "session_id": session_id,
+                    "source": {"framework": "vitest", "project": "test"},
+                    "type": "test.start",
+                    "data": {"test_name": "t1"},
+                },
+            )
 
             # POST 一个 test.end（应收到）
-            client.post("/events", json={
-                "session_id": session_id,
-                "source": {"framework": "vitest", "project": "test"},
-                "type": "test.end",
-                "data": {"test_name": "t1", "passed": True},
-            })
+            client.post(
+                "/events",
+                json={
+                    "session_id": session_id,
+                    "source": {"framework": "vitest", "project": "test"},
+                    "type": "test.end",
+                    "data": {"test_name": "t1", "passed": True},
+                },
+            )
 
             # 应只收到 test.end，不应收到 test.start
             event = ws.receive_json()
@@ -213,20 +219,26 @@ class TestWebSocketIntegration:
             assert sub_resp["event_types_filter"] == ["test.fail"]
 
             # POST test.start（被过滤）
-            client.post("/events", json={
-                "session_id": session_id,
-                "source": {"framework": "vitest", "project": "test"},
-                "type": "test.start",
-                "data": {},
-            })
+            client.post(
+                "/events",
+                json={
+                    "session_id": session_id,
+                    "source": {"framework": "vitest", "project": "test"},
+                    "type": "test.start",
+                    "data": {},
+                },
+            )
 
             # POST test.fail（应收到）
-            client.post("/events", json={
-                "session_id": session_id,
-                "source": {"framework": "vitest", "project": "test"},
-                "type": "test.fail",
-                "data": {"test_name": "fail_test"},
-            })
+            client.post(
+                "/events",
+                json={
+                    "session_id": session_id,
+                    "source": {"framework": "vitest", "project": "test"},
+                    "type": "test.fail",
+                    "data": {"test_name": "fail_test"},
+                },
+            )
 
             event = ws.receive_json()
             assert event["type"] == "test.fail"
@@ -235,9 +247,7 @@ class TestWebSocketIntegration:
         """测试取消过滤"""
         session_id = "ws-unsub-1"
 
-        with client.websocket_connect(
-            f"/ws/events/{session_id}?event_types=test.fail"
-        ) as ws:
+        with client.websocket_connect(f"/ws/events/{session_id}?event_types=test.fail") as ws:
             ws.receive_json()  # connected
 
             # 取消过滤
@@ -246,12 +256,15 @@ class TestWebSocketIntegration:
             assert unsub_resp["type"] == "unsubscribed"
 
             # 现在应能收到 test.start
-            client.post("/events", json={
-                "session_id": session_id,
-                "source": {"framework": "vitest", "project": "test"},
-                "type": "test.start",
-                "data": {},
-            })
+            client.post(
+                "/events",
+                json={
+                    "session_id": session_id,
+                    "source": {"framework": "vitest", "project": "test"},
+                    "type": "test.start",
+                    "data": {},
+                },
+            )
 
             event = ws.receive_json()
             assert event["type"] == "test.start"
@@ -271,18 +284,23 @@ class TestWebSocketIntegration:
         """测试多个客户端连接同一 session"""
         session_id = "ws-multi-1"
 
-        with client.websocket_connect(f"/ws/events/{session_id}") as ws1, \
-             client.websocket_connect(f"/ws/events/{session_id}") as ws2:
+        with (
+            client.websocket_connect(f"/ws/events/{session_id}") as ws1,
+            client.websocket_connect(f"/ws/events/{session_id}") as ws2,
+        ):
             ws1.receive_json()  # connected
             ws2.receive_json()  # connected
 
             # POST 事件
-            client.post("/events", json={
-                "session_id": session_id,
-                "source": {"framework": "vitest", "project": "test"},
-                "type": "test.end",
-                "data": {"test_name": "shared_test", "passed": True},
-            })
+            client.post(
+                "/events",
+                json={
+                    "session_id": session_id,
+                    "source": {"framework": "vitest", "project": "test"},
+                    "type": "test.end",
+                    "data": {"test_name": "shared_test", "passed": True},
+                },
+            )
 
             # 两个客户端都应收到
             event1 = ws1.receive_json()
@@ -293,18 +311,23 @@ class TestWebSocketIntegration:
 
     def test_websocket_different_sessions_isolated(self, client):
         """测试不同 session 之间的事件隔离"""
-        with client.websocket_connect("/ws/events/session-A") as ws_a, \
-             client.websocket_connect("/ws/events/session-B") as ws_b:
+        with (
+            client.websocket_connect("/ws/events/session-A") as ws_a,
+            client.websocket_connect("/ws/events/session-B") as ws_b,
+        ):
             ws_a.receive_json()  # connected
             ws_b.receive_json()  # connected
 
             # POST 到 session-A
-            client.post("/events", json={
-                "session_id": "session-A",
-                "source": {"framework": "vitest", "project": "test"},
-                "type": "test.start",
-                "data": {"test_name": "only_a"},
-            })
+            client.post(
+                "/events",
+                json={
+                    "session_id": "session-A",
+                    "source": {"framework": "vitest", "project": "test"},
+                    "type": "test.start",
+                    "data": {"test_name": "only_a"},
+                },
+            )
 
             # 只有 ws_a 应收到
             event_a = ws_a.receive_json()
@@ -320,17 +343,20 @@ class TestWebSocketIntegration:
             ws.receive_json()  # connected
 
             # 批量 POST
-            client.post("/events/batch", json={
-                "events": [
-                    {
-                        "session_id": session_id,
-                        "source": {"framework": "vitest", "project": "test"},
-                        "type": "test.start",
-                        "data": {"test_name": f"batch_{i}"},
-                    }
-                    for i in range(3)
-                ]
-            })
+            client.post(
+                "/events/batch",
+                json={
+                    "events": [
+                        {
+                            "session_id": session_id,
+                            "source": {"framework": "vitest", "project": "test"},
+                            "type": "test.start",
+                            "data": {"test_name": f"batch_{i}"},
+                        }
+                        for i in range(3)
+                    ]
+                },
+            )
 
             # 批量端点目前不广播，但应验证不崩溃
             # （如需支持批量广播可后续扩展）

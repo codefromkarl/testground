@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any, Callable, Dict, List, Optional
 
@@ -231,11 +230,13 @@ def assert_trip_plan_structure(output: str) -> List[Dict[str, Any]]:
 
     for name, pattern, required in checks:
         match = bool(re.search(pattern, output))
-        results.append({
-            "check": name,
-            "passed": match,
-            "required": required,
-            "score": 1.0 if match else 0.0,
-        })
+        results.append(
+            {
+                "check": name,
+                "passed": match,
+                "required": required,
+                "score": 1.0 if match else 0.0,
+            }
+        )
 
     return results

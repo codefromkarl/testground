@@ -11,10 +11,9 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
-from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, List, Optional
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS analysis_runs (
@@ -169,9 +168,7 @@ class PipelineState:
         self._conn.commit()
 
     def get_run(self, run_id: str) -> Optional[sqlite3.Row]:
-        return self._conn.execute(
-            "SELECT * FROM analysis_runs WHERE run_id = ?", (run_id,)
-        ).fetchone()
+        return self._conn.execute("SELECT * FROM analysis_runs WHERE run_id = ?", (run_id,)).fetchone()
 
     def get_run_status(self, run_id: str) -> Optional[str]:
         row = self.get_run(run_id)
@@ -187,9 +184,7 @@ class PipelineState:
         self._conn.commit()
 
     def get_recon(self, run_id: str) -> Optional[Dict[str, Any]]:
-        row = self._conn.execute(
-            "SELECT raw_json FROM recon_outputs WHERE run_id = ?", (run_id,)
-        ).fetchone()
+        row = self._conn.execute("SELECT raw_json FROM recon_outputs WHERE run_id = ?", (run_id,)).fetchone()
         return json.loads(row["raw_json"]) if row else None
 
     # ─── Tasks ─────────────────────────────────────────────
@@ -330,8 +325,15 @@ class PipelineState:
 
     # ─── Costs ─────────────────────────────────────────────
 
-    def record_cost(self, run_id: str, stage: str, ref_id: Optional[str],
-                    input_tokens: int = 0, output_tokens: int = 0, duration_ms: int = 0) -> None:
+    def record_cost(
+        self,
+        run_id: str,
+        stage: str,
+        ref_id: Optional[str],
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        duration_ms: int = 0,
+    ) -> None:
         self._conn.execute(
             "INSERT INTO costs (run_id, stage, ref_id, input_tokens, output_tokens, duration_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (run_id, stage, ref_id, input_tokens, output_tokens, duration_ms, time.time()),
@@ -350,7 +352,10 @@ class PipelineState:
             "SELECT stage, SUM(input_tokens) as input_tok, SUM(output_tokens) as output_tok, SUM(duration_ms) as dur FROM costs WHERE run_id = ? GROUP BY stage",
             (run_id,),
         ).fetchall()
-        return {r["stage"]: {"input_tokens": r["input_tok"], "output_tokens": r["output_tok"], "duration_ms": r["dur"]} for r in rows}
+        return {
+            r["stage"]: {"input_tokens": r["input_tok"], "output_tokens": r["output_tok"], "duration_ms": r["dur"]}
+            for r in rows
+        }
 
     # ─── 历史对比 ──────────────────────────────────────────
 

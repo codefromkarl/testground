@@ -9,12 +9,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cli import (
+    cmd_analyze,
     cmd_import_events,
     cmd_import_report,
     cmd_sessions,
-    cmd_timeline,
-    cmd_analyze,
     cmd_stats,
+    cmd_timeline,
 )
 from gateway.storage import Storage
 
@@ -84,8 +84,18 @@ class TestImportReport:
 class TestImportEvents:
     def test_import_events_list(self, db, tmp_path, capsys):
         events = [
-            {"session_id": "test-sess", "source": {"framework": "vitest", "project": "test"}, "type": "test.start", "data": {"test_name": "t1"}},
-            {"session_id": "test-sess", "source": {"framework": "vitest", "project": "test"}, "type": "test.end", "data": {"test_name": "t1", "passed": True, "duration_ms": 100}},
+            {
+                "session_id": "test-sess",
+                "source": {"framework": "vitest", "project": "test"},
+                "type": "test.start",
+                "data": {"test_name": "t1"},
+            },
+            {
+                "session_id": "test-sess",
+                "source": {"framework": "vitest", "project": "test"},
+                "type": "test.end",
+                "data": {"test_name": "t1", "passed": True, "duration_ms": 100},
+            },
         ]
         path = tmp_path / "events.json"
         path.write_text(json.dumps(events))
@@ -103,12 +113,18 @@ class TestSessions:
         assert "暂无会话" in output
 
     def test_list_sessions_with_data(self, db, storage, capsys):
-        from schema.events import TestSession
         import time
-        storage.store_session(TestSession(
-            session_id="test-1", project="travel-agent", framework="vitest",
-            started_at=int(time.time() * 1000),
-        ))
+
+        from schema.events import ObsSession
+
+        storage.store_session(
+            ObsSession(
+                session_id="test-1",
+                project="travel-agent",
+                framework="vitest",
+                started_at=int(time.time() * 1000),
+            )
+        )
         args = type("Args", (), {"project": None, "limit": 10, "db": db})()
         cmd_sessions(args)
         output = capsys.readouterr().out
@@ -123,7 +139,8 @@ class TestTimeline:
         assert "无事件" in output
 
     def test_timeline_with_events(self, db, storage, capsys):
-        from schema.events import EventSource, create_test_start, create_test_end
+        from schema.events import EventSource, create_test_end, create_test_start
+
         source = EventSource(framework="vitest", project="test")
         storage.store_event(create_test_start("tl-sess", source, "t1", "t1"))
         storage.store_event(create_test_end("tl-sess", source, "t1", True, 100))
@@ -142,7 +159,8 @@ class TestAnalyze:
         assert "无事件" in output
 
     def test_analyze_with_events(self, db, storage, capsys):
-        from schema.events import EventSource, create_test_start, create_test_end, create_assertion
+        from schema.events import EventSource, create_assertion, create_test_end, create_test_start
+
         source = EventSource(framework="vitest", project="test")
         storage.store_event(create_test_start("a-sess", source, "t1", "t1"))
         storage.store_event(create_assertion("a-sess", source, "a1", True))
@@ -162,7 +180,8 @@ class TestStats:
         assert "empty" in output
 
     def test_stats_with_data(self, db, storage, capsys):
-        from schema.events import EventSource, create_test_start, create_test_end
+        from schema.events import EventSource, create_test_end, create_test_start
+
         source = EventSource(framework="vitest", project="stats-test")
         storage.store_event(create_test_start("s-sess", source, "t1", "t1"))
         storage.store_event(create_test_end("s-sess", source, "t1", True, 100))

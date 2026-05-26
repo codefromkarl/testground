@@ -1,20 +1,23 @@
 """测试观测平台自身的测试"""
 
-import json
+import sys
 import time
 import uuid
 from pathlib import Path
 
 import pytest
-import sys
 
 # 将项目根目录加入 path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from analyzers.anomaly_detector import AnomalyDetector
+from analyzers.bug_discovery import BugDiscoveryAnalyzer
+from analyzers.quality_guard import QualityGuard
+from gateway.storage import Storage
 from schema.events import (
     EventSource,
-    TestEvent,
-    TestSession,
+    ObsEvent,
+    ObsSession,
     create_agent_tool_call,
     create_assertion,
     create_bug_candidate,
@@ -22,11 +25,6 @@ from schema.events import (
     create_test_end,
     create_test_start,
 )
-from gateway.storage import Storage
-from analyzers.bug_discovery import BugDiscoveryAnalyzer
-from analyzers.quality_guard import QualityGuard
-from analyzers.anomaly_detector import AnomalyDetector
-
 
 # ─── Schema 测试 ────────────────────────────────────────────
 
@@ -194,7 +192,7 @@ class TestStorage:
         assert test_events[0]["type"] == "test.start"
 
     def test_store_session(self, storage):
-        session = TestSession(
+        session = ObsSession(
             session_id="sess-1",
             project="travel-agent",
             framework="vitest",
@@ -206,7 +204,7 @@ class TestStorage:
         assert retrieved["project"] == "travel-agent"
 
     def test_update_session(self, storage):
-        session = TestSession(
+        session = ObsSession(
             session_id="sess-update",
             project="test",
             framework="vitest",
@@ -226,12 +224,14 @@ class TestStorage:
 
     def test_get_recent_sessions(self, storage):
         for i in range(5):
-            storage.store_session(TestSession(
-                session_id=f"sess-{i}",
-                project="test",
-                framework="vitest",
-                started_at=int(time.time() * 1000) + i * 1000,
-            ))
+            storage.store_session(
+                ObsSession(
+                    session_id=f"sess-{i}",
+                    project="test",
+                    framework="vitest",
+                    started_at=int(time.time() * 1000) + i * 1000,
+                )
+            )
         sessions = storage.get_recent_sessions(limit=3)
         assert len(sessions) == 3
 
@@ -261,20 +261,20 @@ class TestBugDiscovery:
         for i, t in enumerate(types):
             # 确保 start/end 使用相同的 test_name
             test_idx = i // 2  # 每两个事件一个测试
-            events.append(TestEvent(
-                event_id=f"evt-{i}",
-                session_id="sess",
-                timestamp=1000 + i * 100,
-                source=source,
-                type=t,
-                data={"test_name": f"test_{test_idx}"},
-            ))
+            events.append(
+                ObsEvent(
+                    event_id=f"evt-{i}",
+                    session_id="sess",
+                    timestamp=1000 + i * 100,
+                    source=source,
+                    type=t,
+                    data={"test_name": f"test_{test_idx}"},
+                )
+            )
         return [e.to_dict() for e in events]
 
     def test_detect_failure_streak(self):
-        events = self._make_events([
-            "test.end", "test.fail", "test.fail", "test.fail", "test.end"
-        ])
+        events = self._make_events(["test.end", "test.fail", "test.fail", "test.fail", "test.end"])
         analyzer = BugDiscoveryAnalyzer()
         result = analyzer.analyze(events)
         assert any(f["category"] == "failure_streak" for f in result.findings)
@@ -360,14 +360,16 @@ class TestSemanticEvaluator:
 
     def test_analyzer_name(self):
         from analyzers.semantic_eval import SemanticEvaluator
+
         assert SemanticEvaluator().name == "semantic_eval"
 
     def test_evaluate_tool_failure(self):
         from analyzers.semantic_eval import SemanticEvaluator
+
         source = EventSource(framework="vitest", project="test")
         events = [
             create_agent_tool_call("sess", source, "search_weather", {"city": "杭州"}).to_dict(),
-            TestEvent(
+            ObsEvent(
                 event_id="evt-result",
                 session_id="sess",
                 timestamp=1000,
@@ -382,9 +384,10 @@ class TestSemanticEvaluator:
 
     def test_evaluate_empty_output(self):
         from analyzers.semantic_eval import SemanticEvaluator
+
         source = EventSource(framework="vitest", project="test")
         events = [
-            TestEvent(
+            ObsEvent(
                 event_id="evt-result",
                 session_id="sess",
                 timestamp=1000,
@@ -399,9 +402,10 @@ class TestSemanticEvaluator:
 
     def test_evaluate_custom_eval_fn(self):
         from analyzers.semantic_eval import SemanticEvaluator
+
         source = EventSource(framework="vitest", project="test")
         events = [
-            TestEvent(
+            ObsEvent(
                 event_id="evt-result",
                 session_id="sess",
                 timestamp=1000,
@@ -417,6 +421,7 @@ class TestSemanticEvaluator:
 
     def test_assert_trip_plan_structure(self):
         from analyzers.semantic_eval import assert_trip_plan_structure
+
         output = "目的地：杭州，第一天游览西湖，第二天去灵隐寺，住宿推荐西湖边酒店，预算约2000元"
         results = assert_trip_plan_structure(output)
         passed = [r for r in results if r["passed"]]
@@ -424,15 +429,21 @@ class TestSemanticEvaluator:
 
     def test_evaluate_good_output(self):
         from analyzers.semantic_eval import SemanticEvaluator
+
         source = EventSource(framework="vitest", project="test")
         events = [
-            TestEvent(
+            ObsEvent(
                 event_id="evt-result",
                 session_id="sess",
                 timestamp=1000,
                 source=source,
                 type="agent.tool_result",
-                data={"tool_name": "search_weather", "input": {"city": "杭州"}, "output": {"temp": 28, "weather": "晴"}, "success": True},
+                data={
+                    "tool_name": "search_weather",
+                    "input": {"city": "杭州"},
+                    "output": {"temp": 28, "weather": "晴"},
+                    "success": True,
+                },
             ).to_dict(),
         ]
         evaluator = SemanticEvaluator()
@@ -446,7 +457,9 @@ class TestAPIIntegration:
     @pytest.fixture
     def client(self, tmp_path):
         from fastapi.testclient import TestClient
+
         from gateway.main import app, storage
+
         # 使用临时数据库
         storage.db_path = str(tmp_path / "test_api.db")
         storage._init_db()
@@ -458,18 +471,26 @@ class TestAPIIntegration:
         assert resp.json()["status"] == "ok"
 
     def test_ingest_event(self, client):
-        resp = client.post("/events", json={
-            "session_id": "api-sess-1",
-            "source": {"framework": "vitest", "project": "test"},
-            "type": "test.start",
-            "data": {"test_name": "api_test"},
-        })
+        resp = client.post(
+            "/events",
+            json={
+                "session_id": "api-sess-1",
+                "source": {"framework": "vitest", "project": "test"},
+                "type": "test.start",
+                "data": {"test_name": "api_test"},
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["status"] == "accepted"
 
     def test_ingest_batch(self, client):
         events = [
-            {"session_id": "batch-sess", "source": {"framework": "vitest", "project": "test"}, "type": "test.start", "data": {"test_name": f"t{i}"}}
+            {
+                "session_id": "batch-sess",
+                "source": {"framework": "vitest", "project": "test"},
+                "type": "test.start",
+                "data": {"test_name": f"t{i}"},
+            }
             for i in range(5)
         ]
         resp = client.post("/events/batch", json={"events": events})
@@ -477,10 +498,13 @@ class TestAPIIntegration:
         assert resp.json()["count"] == 5
 
     def test_create_session(self, client):
-        resp = client.post("/sessions", json={
-            "project": "travel-agent",
-            "framework": "vitest",
-        })
+        resp = client.post(
+            "/sessions",
+            json={
+                "project": "travel-agent",
+                "framework": "vitest",
+            },
+        )
         assert resp.status_code == 200
         sid = resp.json()["session_id"]
         assert sid
@@ -488,28 +512,37 @@ class TestAPIIntegration:
     def test_get_session_timeline(self, client):
         # 先创建会话和事件
         client.post("/sessions", json={"session_id": "tl-sess", "project": "test", "framework": "vitest"})
-        client.post("/events", json={
-            "session_id": "tl-sess",
-            "source": {"framework": "vitest", "project": "test"},
-            "type": "test.start",
-            "data": {"test_name": "tl_test"},
-        })
+        client.post(
+            "/events",
+            json={
+                "session_id": "tl-sess",
+                "source": {"framework": "vitest", "project": "test"},
+                "type": "test.start",
+                "data": {"test_name": "tl_test"},
+            },
+        )
         resp = client.get("/sessions/tl-sess/timeline")
         assert resp.status_code == 200
         assert resp.json()["count"] == 1
 
     def test_gate_result(self, client):
-        client.post("/sessions", json={
-            "session_id": "gate-sess",
-            "project": "test",
-            "framework": "custom",
-        })
-        client.post("/events", json={
-            "session_id": "gate-sess",
-            "source": {"framework": "custom", "project": "test"},
-            "type": "report.gate_result",
-            "data": {"verdict": "PASS", "rules": {}},
-        })
+        client.post(
+            "/sessions",
+            json={
+                "session_id": "gate-sess",
+                "project": "test",
+                "framework": "custom",
+            },
+        )
+        client.post(
+            "/events",
+            json={
+                "session_id": "gate-sess",
+                "source": {"framework": "custom", "project": "test"},
+                "type": "report.gate_result",
+                "data": {"verdict": "PASS", "rules": {}},
+            },
+        )
         resp = client.get("/sessions/gate-sess/gate")
         assert resp.status_code == 200
         assert resp.json()["verdict"] == "PASS"

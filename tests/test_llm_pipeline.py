@@ -12,24 +12,20 @@
 标记为 @pytest.mark.llm，需要 LLM 网关运行才能执行。
 """
 
-import json
-import os
+import sys
 import time
 import uuid
 from pathlib import Path
 
 import pytest
-import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from analyzers.llm_client import LLMClient, LLMConfig, is_llm_available, get_default_model_info
-from analyzers.pipeline.state import PipelineState
-from analyzers.pipeline.orchestrator import AnalysisPipeline, PipelineConfig
-from analyzers.pipeline.runner import AgentRunner, _validate_schema, _extract_json
-from analyzers.pipeline.schemas import get_schema
+from analyzers.llm_client import LLMClient, get_default_model_info, is_llm_available
 from analyzers.pipeline.agents import get_agent_prompt
-
+from analyzers.pipeline.orchestrator import AnalysisPipeline, PipelineConfig
+from analyzers.pipeline.runner import AgentRunner
+from analyzers.pipeline.state import PipelineState
 
 # ─── 标记 ─────────────────────────────────────────────────
 
@@ -41,6 +37,7 @@ if not is_llm_available():
 
 
 # ─── 测试数据 ─────────────────────────────────────────────
+
 
 def _realistic_events():
     """构造一个真实场景的测试事件流：
@@ -88,8 +85,7 @@ def _realistic_events():
     events.append(_evt("assert.pass", n))
     events.append(_evt("test.end", n, duration_ms=200))
     events.append(_evt("test.start", n))
-    events.append(_evt("test.fail", n, duration_ms=3000,
-                        errors=[{"message": "timeout after 3000ms"}]))
+    events.append(_evt("test.fail", n, duration_ms=3000, errors=[{"message": "timeout after 3000ms"}]))
 
     # 无断言测试
     n = "test_config_loading"
@@ -103,12 +99,19 @@ def _realistic_events():
     events.append(_evt("test.end", n, duration_ms=30000))
 
     # Agent 工具调用
-    events.append(_evt("agent.tool_call", tool_name="search_weather",
-                       input={"city": "Beijing"}, output='{"temp": 25}', success=True))
-    events.append(_evt("agent.tool_result", tool_name="search_weather",
-                       output='{"temp": 25, "condition": "sunny"}', success=True))
-    events.append(_evt("agent.tool_call", tool_name="book_hotel",
-                       input={"city": "Beijing"}, output="", success=False))
+    events.append(
+        _evt(
+            "agent.tool_call",
+            tool_name="search_weather",
+            input={"city": "Beijing"},
+            output='{"temp": 25}',
+            success=True,
+        )
+    )
+    events.append(
+        _evt("agent.tool_result", tool_name="search_weather", output='{"temp": 25, "condition": "sunny"}', success=True)
+    )
+    events.append(_evt("agent.tool_call", tool_name="book_hotel", input={"city": "Beijing"}, output="", success=False))
 
     return events
 
@@ -123,9 +126,7 @@ class TestLLMDiscovery:
         """应自动发现 CPA/mimo3"""
         info = get_default_model_info()
         assert info["has_key"], "需要 API key"
-        assert "mimo" in info["model"].lower() or info["model"] != "(未配置)", (
-            f"模型应该是 mimo 系列，实际: {info}"
-        )
+        assert "mimo" in info["model"].lower() or info["model"] != "(未配置)", f"模型应该是 mimo 系列，实际: {info}"
 
     def test_llm_client_basic_call(self):
         """基础 LLM 调用应成功"""
@@ -137,10 +138,7 @@ class TestLLMDiscovery:
     def test_llm_client_json_call(self):
         """JSON 格式调用应成功"""
         client = LLMClient()
-        result = client.chat_json(
-            '输出 JSON: {"answer": 42}',
-            system="只输出 JSON，不要其他文字。"
-        )
+        result = client.chat_json('输出 JSON: {"answer": 42}', system="只输出 JSON，不要其他文字。")
         assert result.get("answer") == 42
         client.close()
 
@@ -160,7 +158,8 @@ class TestLLMRecon:
             "projects": ["TravelAgent"],
             "frameworks": ["vitest"],
             "sample_events": events[:15],  # 只发前 15 个
-            "pass_rate": sum(1 for e in events if e["type"] == "test.end") / max(1, sum(1 for e in events if e["type"] in ("test.end", "test.fail"))),
+            "pass_rate": sum(1 for e in events if e["type"] == "test.end")
+            / max(1, sum(1 for e in events if e["type"] in ("test.end", "test.fail"))),
         }
 
         result = runner.run(
@@ -209,9 +208,7 @@ class TestLLMRecon:
 
         # 应该有 flaky_detector 任务
         agent_types = [t["agent_type"] for t in result.payload.get("analysis_tasks", [])]
-        assert "flaky_detector" in agent_types, (
-            f"Recon 没有生成 flaky_detector 任务，实际: {agent_types}"
-        )
+        assert "flaky_detector" in agent_types, f"Recon 没有生成 flaky_detector 任务，实际: {agent_types}"
 
 
 class TestLLMHunt:
@@ -223,7 +220,12 @@ class TestLLMHunt:
         events = _realistic_events()
 
         # 只传 flaky 相关的事件
-        flaky_events = [e for e in events if "weather" in e.get("data", {}).get("test_name", "") or e.get("type") in ("test.start", "test.end", "test.fail")]
+        flaky_events = [
+            e
+            for e in events
+            if "weather" in e.get("data", {}).get("test_name", "")
+            or e.get("type") in ("test.start", "test.end", "test.fail")
+        ]
 
         result = runner.run(
             stage="hunt",
@@ -249,9 +251,7 @@ class TestLLMHunt:
             assert "category" in f
             assert "evidence" in f
             assert "snippet" in f.get("evidence", {})
-            assert len(f["evidence"]["snippet"]) > 5, (
-                f"evidence snippet 太短，说明 LLM 没有真正分析: {f}"
-            )
+            assert len(f["evidence"]["snippet"]) > 5, f"evidence snippet 太短，说明 LLM 没有真正分析: {f}"
 
 
 class TestLLMValidate:
@@ -279,11 +279,24 @@ class TestLLMValidate:
                 },
                 "events_sample": [
                     {"type": "test.start", "data": {"test_name": "test_weather_api_timeout"}},
-                    {"type": "test.end", "data": {"test_name": "test_weather_api_timeout", "passed": True, "duration_ms": 200}},
+                    {
+                        "type": "test.end",
+                        "data": {"test_name": "test_weather_api_timeout", "passed": True, "duration_ms": 200},
+                    },
                     {"type": "test.start", "data": {"test_name": "test_weather_api_timeout"}},
-                    {"type": "test.fail", "data": {"test_name": "test_weather_api_timeout", "duration_ms": 200, "errors": [{"message": "Expected 200 but got 500"}]}},
+                    {
+                        "type": "test.fail",
+                        "data": {
+                            "test_name": "test_weather_api_timeout",
+                            "duration_ms": 200,
+                            "errors": [{"message": "Expected 200 but got 500"}],
+                        },
+                    },
                     {"type": "test.start", "data": {"test_name": "test_weather_api_timeout"}},
-                    {"type": "test.end", "data": {"test_name": "test_weather_api_timeout", "passed": True, "duration_ms": 180}},
+                    {
+                        "type": "test.end",
+                        "data": {"test_name": "test_weather_api_timeout", "passed": True, "duration_ms": 180},
+                    },
                 ],
             },
             agent_type="validate",
@@ -297,9 +310,7 @@ class TestLLMValidate:
             f"verdict={result.payload.get('verdict')}, "
             f"rationale={result.payload.get('rationale', '')[:200]}"
         )
-        assert "alternative_explanation" in result.payload, (
-            "Validate 即使确认也必须提供 alternative_explanation"
-        )
+        assert "alternative_explanation" in result.payload, "Validate 即使确认也必须提供 alternative_explanation"
 
     def test_validate_rejects_false_positive(self):
         """Validate 应拒绝一个假 flaky（只有一次失败，不是 flaky）"""
@@ -370,9 +381,7 @@ class TestLLMFeedback:
         )
 
         new_tasks = result.payload.get("new_tasks", [])
-        assert len(new_tasks) > 0, (
-            "Feedback 应该从同类 flaky 模式中生成扩散检测任务"
-        )
+        assert len(new_tasks) > 0, "Feedback 应该从同类 flaky 模式中生成扩散检测任务"
 
         for task in new_tasks:
             assert "seeded_from" in task, "扩散任务应标注原始 finding"
@@ -410,9 +419,7 @@ class TestLLMReport:
 
         report = result.payload
         assert "executive_summary" in report
-        assert len(report["executive_summary"]) > 20, (
-            "执行摘要太短，说明 LLM 没有认真总结"
-        )
+        assert len(report["executive_summary"]) > 20, "执行摘要太短，说明 LLM 没有认真总结"
         assert "confirmed_findings" in report
         assert "metrics" in report
         assert "quality_score" in report["metrics"]
@@ -455,19 +462,17 @@ class TestLLMFullPipeline:
         assert "metrics" in report
 
         # 至少应该检测到 flaky（因为构造了明显的 flaky 数据）
-        categories = {f.get("category") for f in result.confirmed_findings}
+        {f.get("category") for f in result.confirmed_findings}
         # 注意：LLM 可能把 flaky 叫别的名字，所以不强制类别名
         # 但至少应该有 findings
         total_confirmed = len(result.confirmed_findings)
         total_rejected = result.rejected_count
-        assert total_confirmed + total_rejected > 0, (
-            "Pipeline 应该至少产出一些 findings（不论是否被确认）"
-        )
+        assert total_confirmed + total_rejected > 0, "Pipeline 应该至少产出一些 findings（不论是否被确认）"
 
         # 打印摘要
-        print(f"\n{'='*60}")
-        print(f"LLM Pipeline 结果摘要")
-        print(f"{'='*60}")
+        print(f"\n{'=' * 60}")
+        print("LLM Pipeline 结果摘要")
+        print(f"{'=' * 60}")
         print(f"状态: {result.status}")
         print(f"质量分: {result.quality_score:.0f}/100")
         print(f"已确认: {total_confirmed}")
@@ -475,11 +480,11 @@ class TestLLMFullPipeline:
         print(f"Token 消耗: {total_tokens}")
         print(f"耗时: {result.duration_ms}ms")
         if result.confirmed_findings:
-            print(f"\n已确认的 findings:")
+            print("\n已确认的 findings:")
             for f in result.confirmed_findings:
                 print(f"  - [{f.get('category')}] {f.get('description', '')[:60]}")
         if report.get("recommendations"):
-            print(f"\n建议:")
+            print("\n建议:")
             for r in report["recommendations"]:
                 print(f"  💡 {r}")
 

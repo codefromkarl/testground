@@ -57,7 +57,7 @@ export type ReportType =
   | "report.gate_result";
 
 /** 所有事件类型 */
-export type TestEventType =
+export type ObsEventType =
   | TestLifecycleType
   | AssertionType
   | ActionType
@@ -93,7 +93,7 @@ export interface EventSource {
 
 // ─── 核心事件结构 ──────────────────────────────────────────
 
-export interface TestEvent {
+export interface ObsEvent {
   /** 唯一标识 */
   event_id: string;
 
@@ -107,7 +107,7 @@ export interface TestEvent {
   source: EventSource;
 
   /** 事件类型 */
-  type: TestEventType;
+  type: ObsEventType;
 
   /** 事件数据（不同类型有不同的结构） */
   data: Record<string, unknown>;
@@ -279,7 +279,7 @@ export interface GateResultData {
 
 // ─── 测试会话 ──────────────────────────────────────────────
 
-export interface TestSession {
+export interface ObsSession {
   session_id: string;
   project: Project;
   framework: Framework;
@@ -315,7 +315,7 @@ export interface TimelineItem {
   end?: number;
   content: string;
   className?: string;
-  data: TestEvent;
+  data: ObsEvent;
 }
 
 export interface TimelineGroup {

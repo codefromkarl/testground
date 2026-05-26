@@ -50,9 +50,7 @@ class AnomalyDetector(BaseAnalyzer):
             recommendations=self._generate_recommendations(findings),
         )
 
-    def _detect_pass_rate_anomalies(
-        self, by_project: Dict[str, List[Dict[str, Any]]]
-    ) -> List[Dict[str, Any]]:
+    def _detect_pass_rate_anomalies(self, by_project: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
         """检测通过率异常"""
         findings = []
 
@@ -66,20 +64,20 @@ class AnomalyDetector(BaseAnalyzer):
 
             pass_rate = passed / total
             if pass_rate < 0.8:
-                findings.append({
-                    "severity": "high" if pass_rate < 0.5 else "medium",
-                    "category": "low_pass_rate",
-                    "description": f"项目 {project} 通过率过低: {pass_rate:.1%} ({passed}/{total})",
-                    "project": project,
-                    "pass_rate": pass_rate,
-                    "total_tests": total,
-                })
+                findings.append(
+                    {
+                        "severity": "high" if pass_rate < 0.5 else "medium",
+                        "category": "low_pass_rate",
+                        "description": f"项目 {project} 通过率过低: {pass_rate:.1%} ({passed}/{total})",
+                        "project": project,
+                        "pass_rate": pass_rate,
+                        "total_tests": total,
+                    }
+                )
 
         return findings
 
-    def _detect_event_distribution_anomalies(
-        self, events: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+    def _detect_event_distribution_anomalies(self, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """检测事件分布异常（某种事件类型异常多或少）"""
         findings = []
         type_counts: Dict[str, int] = {}
@@ -95,13 +93,15 @@ class AnomalyDetector(BaseAnalyzer):
         # 检测异常高的失败率
         fail_count = type_counts.get("test.fail", 0)
         if total > 10 and fail_count / total > 0.3:
-            findings.append({
-                "severity": "high",
-                "category": "high_failure_ratio",
-                "description": f"失败事件占比过高: {fail_count}/{total} ({fail_count/total:.1%})",
-                "fail_count": fail_count,
-                "total_events": total,
-            })
+            findings.append(
+                {
+                    "severity": "high",
+                    "category": "high_failure_ratio",
+                    "description": f"失败事件占比过高: {fail_count}/{total} ({fail_count / total:.1%})",
+                    "fail_count": fail_count,
+                    "total_events": total,
+                }
+            )
 
         return findings
 
@@ -130,13 +130,15 @@ class AnomalyDetector(BaseAnalyzer):
 
         # 检测异常长间隔（超过平均的 10 倍且超过 30 秒）
         if max_gap > avg_gap * 10 and max_gap > 30000:
-            findings.append({
-                "severity": "medium",
-                "category": "time_gap",
-                "description": f"检测到异常长间隔: {max_gap/1000:.1f}秒（平均 {avg_gap/1000:.1f}秒）",
-                "max_gap_ms": max_gap,
-                "avg_gap_ms": avg_gap,
-            })
+            findings.append(
+                {
+                    "severity": "medium",
+                    "category": "time_gap",
+                    "description": f"检测到异常长间隔: {max_gap / 1000:.1f}秒（平均 {avg_gap / 1000:.1f}秒）",
+                    "max_gap_ms": max_gap,
+                    "avg_gap_ms": avg_gap,
+                }
+            )
 
         return findings
 

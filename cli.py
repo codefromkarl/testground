@@ -24,10 +24,10 @@ _root = Path(__file__).parent
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
-from schema.events import EventSource, TestEvent, create_gate_result
-from gateway.storage import Storage
-from analyzers import BugDiscoveryAnalyzer, QualityGuard, AnomalyDetector, SemanticEvaluator
+from analyzers import AnomalyDetector, BugDiscoveryAnalyzer, QualityGuard, SemanticEvaluator
 from analyzers.pipeline import AnalysisPipeline, PipelineConfig, PipelineState
+from gateway.storage import Storage
+from schema.events import EventSource, ObsEvent, create_gate_result
 
 
 def cmd_import_report(args: argparse.Namespace) -> None:
@@ -47,32 +47,41 @@ def cmd_import_report(args: argparse.Namespace) -> None:
 
     # 导入门禁结果
     if "gate_result" in report:
-        events.append(create_gate_result(session_id, source, 
-            report["gate_result"].get("verdict", "UNKNOWN"),
-            report["gate_result"].get("rules", {})))
+        events.append(
+            create_gate_result(
+                session_id,
+                source,
+                report["gate_result"].get("verdict", "UNKNOWN"),
+                report["gate_result"].get("rules", {}),
+            )
+        )
 
     # 导入各阶段结果
     for phase_name, phase_data in report.get("phases", {}).items():
-        events.append(TestEvent(
-            event_id=str(uuid.uuid4()),
-            session_id=session_id,
-            timestamp=now,
-            source=EventSource(framework="custom", project=args.project, suite=phase_name),
-            type="report.summary",
-            data={"phase": phase_name, **phase_data},
-        ))
+        events.append(
+            ObsEvent(
+                event_id=str(uuid.uuid4()),
+                session_id=session_id,
+                timestamp=now,
+                source=EventSource(framework="custom", project=args.project, suite=phase_name),
+                type="report.summary",
+                data={"phase": phase_name, **phase_data},
+            )
+        )
 
     # 导入覆盖率数据
     coverage = report.get("phases", {}).get("coverage", {})
     if coverage:
-        events.append(TestEvent(
-            event_id=str(uuid.uuid4()),
-            session_id=session_id,
-            timestamp=now,
-            source=source,
-            type="observation.coverage",
-            data=coverage,
-        ))
+        events.append(
+            ObsEvent(
+                event_id=str(uuid.uuid4()),
+                session_id=session_id,
+                timestamp=now,
+                source=source,
+                type="observation.coverage",
+                data=coverage,
+            )
+        )
 
     storage.store_events_batch(events)
     print(f"✅ 导入完成: {session_id}")
@@ -94,15 +103,17 @@ def cmd_import_events(args: argparse.Namespace) -> None:
 
     events = []
     for e in events_data:
-        events.append(TestEvent(
-            event_id=e.get("event_id", str(uuid.uuid4())),
-            session_id=e.get("session_id", "imported"),
-            timestamp=e.get("timestamp", int(time.time() * 1000)),
-            source=EventSource(**e.get("source", {"framework": "custom", "project": "unknown"})),
-            type=e["type"],
-            data=e.get("data", {}),
-            trace_id=e.get("trace_id"),
-        ))
+        events.append(
+            ObsEvent(
+                event_id=e.get("event_id", str(uuid.uuid4())),
+                session_id=e.get("session_id", "imported"),
+                timestamp=e.get("timestamp", int(time.time() * 1000)),
+                source=EventSource(**e.get("source", {"framework": "custom", "project": "unknown"})),
+                type=e["type"],
+                data=e.get("data", {}),
+                trace_id=e.get("trace_id"),
+            )
+        )
 
     count = storage.store_events_batch(events)
     print(f"✅ 导入完成: {count} 个事件")
@@ -208,9 +219,9 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
     result = pipeline.run(events, session_id=args.session_id)
 
     # 输出报告
-    print(f"{'='*60}")
-    print(f"📊 分析结果")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
+    print("📊 分析结果")
+    print(f"{'=' * 60}")
     print(f"状态: {result.status}")
     print(f"耗时: {result.duration_ms}ms")
     print(f"质量分: {result.quality_score:.0f}/100")
@@ -229,7 +240,7 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
         print(f"\n已拒绝: {result.rejected_count} 个（对抗验证推翻）")
 
     if result.recommendations:
-        print(f"\n建议:")
+        print("\n建议:")
         for r in result.recommendations:
             print(f"  💡 {r}")
 

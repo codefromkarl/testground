@@ -8,11 +8,9 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 
-from schema.events import AnalysisResult, TestEvent, TestSession
-
+from schema.events import AnalysisResult, ObsEvent, ObsSession
 
 # ─── 数据库初始化 ──────────────────────────────────────────
 
@@ -97,7 +95,7 @@ class Storage:
 
     # ─── 事件操作 ──────────────────────────────────────────
 
-    def store_event(self, event: TestEvent) -> None:
+    def store_event(self, event: ObsEvent) -> None:
         """存储单个事件"""
         with self._connect() as conn:
             conn.execute(
@@ -123,7 +121,7 @@ class Storage:
                 ),
             )
 
-    def store_events_batch(self, events: List[TestEvent]) -> int:
+    def store_events_batch(self, events: List[ObsEvent]) -> int:
         """批量存储事件，返回存储数量"""
         with self._connect() as conn:
             conn.executemany(
@@ -224,7 +222,7 @@ class Storage:
 
     # ─── 会话操作 ──────────────────────────────────────────
 
-    def store_session(self, session: TestSession) -> None:
+    def store_session(self, session: ObsSession) -> None:
         """存储测试会话"""
         with self._connect() as conn:
             conn.execute(
@@ -262,9 +260,7 @@ class Storage:
                 return self._row_to_session_dict(row)
             return None
 
-    def get_recent_sessions(
-        self, project: Optional[str] = None, limit: int = 20
-    ) -> List[Dict[str, Any]]:
+    def get_recent_sessions(self, project: Optional[str] = None, limit: int = 20) -> List[Dict[str, Any]]:
         """获取最近的会话"""
         with self._connect() as conn:
             if project:

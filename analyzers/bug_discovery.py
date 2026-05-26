@@ -73,23 +73,27 @@ class BugDiscoveryAnalyzer(BaseAnalyzer):
                 streak += 1
             else:
                 if streak >= 3:
-                    findings.append({
-                        "severity": "high",
-                        "category": "failure_streak",
-                        "description": f"连续 {streak} 个测试失败，起始于 {streak_start}",
-                        "streak_length": streak,
-                        "start_test": streak_start,
-                    })
+                    findings.append(
+                        {
+                            "severity": "high",
+                            "category": "failure_streak",
+                            "description": f"连续 {streak} 个测试失败，起始于 {streak_start}",
+                            "streak_length": streak,
+                            "start_test": streak_start,
+                        }
+                    )
                 streak = 0
 
         # 检查末尾的连续失败
         if streak >= 3:
-            findings.append({
-                "severity": "high",
-                "category": "failure_streak",
-                "description": f"末尾连续 {streak} 个测试失败",
-                "streak_length": streak,
-            })
+            findings.append(
+                {
+                    "severity": "high",
+                    "category": "failure_streak",
+                    "description": f"末尾连续 {streak} 个测试失败",
+                    "streak_length": streak,
+                }
+            )
 
         return findings
 
@@ -114,14 +118,16 @@ class BugDiscoveryAnalyzer(BaseAnalyzer):
             if event["type"] in ("test.end", "test.fail"):
                 duration = event.get("data", {}).get("duration_ms", 0)
                 if duration > threshold and duration > 0:  # 排除 duration=0
-                    findings.append({
-                        "severity": "medium",
-                        "category": "slow_test",
-                        "description": f"测试 {event.get('data', {}).get('test_name', 'unknown')} 耗时 {duration:.0f}ms（平均 {avg:.0f}ms）",
-                        "test_name": event.get("data", {}).get("test_name"),
-                        "duration_ms": duration,
-                        "avg_duration_ms": avg,
-                    })
+                    findings.append(
+                        {
+                            "severity": "medium",
+                            "category": "slow_test",
+                            "description": f"测试 {event.get('data', {}).get('test_name', 'unknown')} 耗时 {duration:.0f}ms（平均 {avg:.0f}ms）",
+                            "test_name": event.get("data", {}).get("test_name"),
+                            "duration_ms": duration,
+                            "avg_duration_ms": avg,
+                        }
+                    )
 
         return findings
 
@@ -137,13 +143,15 @@ class BugDiscoveryAnalyzer(BaseAnalyzer):
 
         for name, count in failure_counts.items():
             if count >= 2:
-                findings.append({
-                    "severity": "high" if count >= 3 else "medium",
-                    "category": "repeated_failure",
-                    "description": f"测试 {name} 失败了 {count} 次",
-                    "test_name": name,
-                    "failure_count": count,
-                })
+                findings.append(
+                    {
+                        "severity": "high" if count >= 3 else "medium",
+                        "category": "repeated_failure",
+                        "description": f"测试 {name} 失败了 {count} 次",
+                        "test_name": name,
+                        "failure_count": count,
+                    }
+                )
 
         return findings
 
@@ -164,12 +172,14 @@ class BugDiscoveryAnalyzer(BaseAnalyzer):
 
         incomplete = started - ended
         for name in incomplete:
-            findings.append({
-                "severity": "high",
-                "category": "incomplete_test",
-                "description": f"测试 {name} 开始但未结束（可能崩溃或超时）",
-                "test_name": name,
-            })
+            findings.append(
+                {
+                    "severity": "high",
+                    "category": "incomplete_test",
+                    "description": f"测试 {name} 开始但未结束（可能崩溃或超时）",
+                    "test_name": name,
+                }
+            )
 
         return findings
 

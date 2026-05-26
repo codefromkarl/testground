@@ -4,7 +4,7 @@ from .anomaly_detector import AnomalyDetector
 from .base import AnalysisResult, BaseAnalyzer
 from .bug_discovery import BugDiscoveryAnalyzer
 from .llm_client import LLMClient, LLMConfig, LLMError, is_llm_available
-from .pipeline import AnalysisPipeline, PipelineConfig, PipelineState, AgentRunner, AgentResult
+from .pipeline import AgentResult, AgentRunner, AnalysisPipeline, PipelineConfig, PipelineState
 from .quality_guard import QualityGuard
 from .semantic_eval import SemanticEvaluator
 

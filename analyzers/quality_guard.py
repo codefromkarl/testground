@@ -68,12 +68,14 @@ class QualityGuard(BaseAnalyzer):
         # 检查无断言的测试
         for name in test_starts:
             if name not in test_assertions or test_assertions[name] == 0:
-                findings.append({
-                    "severity": "medium",
-                    "category": "no_assertion",
-                    "description": f"测试 {name} 没有断言",
-                    "test_name": name,
-                })
+                findings.append(
+                    {
+                        "severity": "medium",
+                        "category": "no_assertion",
+                        "description": f"测试 {name} 没有断言",
+                        "test_name": name,
+                    }
+                )
 
         return findings
 
@@ -92,13 +94,15 @@ class QualityGuard(BaseAnalyzer):
         for name, duration in test_durations.items():
             # 超过 10 秒的测试标记为过长
             if duration > 10000:
-                findings.append({
-                    "severity": "low",
-                    "category": "test_too_long",
-                    "description": f"测试 {name} 耗时 {duration:.0f}ms，建议拆分",
-                    "test_name": name,
-                    "duration_ms": duration,
-                })
+                findings.append(
+                    {
+                        "severity": "low",
+                        "category": "test_too_long",
+                        "description": f"测试 {name} 耗时 {duration:.0f}ms，建议拆分",
+                        "test_name": name,
+                        "duration_ms": duration,
+                    }
+                )
 
         return findings
 
@@ -108,17 +112,17 @@ class QualityGuard(BaseAnalyzer):
         has_fail_tests = any(e["type"] == "test.fail" for e in events)
 
         if not has_fail_tests and len(events) > 20:
-            findings.append({
-                "severity": "low",
-                "category": "no_failure_tests",
-                "description": "所有测试都通过了，可能缺少边界条件和错误路径测试",
-            })
+            findings.append(
+                {
+                    "severity": "low",
+                    "category": "no_failure_tests",
+                    "description": "所有测试都通过了，可能缺少边界条件和错误路径测试",
+                }
+            )
 
         return findings
 
-    def _calculate_quality_score(
-        self, events: List[Dict[str, Any]], findings: List[Dict[str, Any]]
-    ) -> float:
+    def _calculate_quality_score(self, events: List[Dict[str, Any]], findings: List[Dict[str, Any]]) -> float:
         """计算质量分 (0-100)"""
         score = 100.0
 
@@ -133,9 +137,7 @@ class QualityGuard(BaseAnalyzer):
 
         return max(0, score)
 
-    def _generate_recommendations(
-        self, findings: List[Dict[str, Any]], score: float
-    ) -> List[str]:
+    def _generate_recommendations(self, findings: List[Dict[str, Any]], score: float) -> List[str]:
         recs = []
         categories = {f["category"] for f in findings}
 

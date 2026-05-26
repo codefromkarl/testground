@@ -1,6 +1,5 @@
 """跨项目集成测试 — 验证平台能处理三个项目的真实测试场景"""
 
-import json
 import sys
 import time
 import uuid
@@ -10,10 +9,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from analyzers import AnomalyDetector, BugDiscoveryAnalyzer, QualityGuard
+from gateway.storage import Storage
 from schema.events import (
     EventSource,
-    TestEvent,
-    TestSession,
+    ObsEvent,
+    ObsSession,
     create_agent_tool_call,
     create_agent_tool_result,
     create_assertion,
@@ -23,8 +24,6 @@ from schema.events import (
     create_test_end,
     create_test_start,
 )
-from gateway.storage import Storage
-from analyzers import AnomalyDetector, BugDiscoveryAnalyzer, QualityGuard, SemanticEvaluator
 
 
 @pytest.fixture
@@ -42,31 +41,55 @@ class TestTravelAgentIntegration:
         events = []
 
         # 会话开始
-        storage.store_session(TestSession(
-            session_id=session_id,
-            project="travel-agent",
-            framework="vitest",
-            started_at=int(time.time() * 1000),
-        ))
+        storage.store_session(
+            ObsSession(
+                session_id=session_id,
+                project="travel-agent",
+                framework="vitest",
+                started_at=int(time.time() * 1000),
+            )
+        )
 
         # 测试1: 天气查询
         events.append(create_test_start(session_id, source, "test_weather", "weather.test.ts > searchWeather"))
-        events.append(create_agent_tool_call(session_id, source, "search_weather", {"city": "杭州", "date": "2026-05-20"}))
-        events.append(create_agent_tool_result(session_id, source, "search_weather", {"city": "杭州"}, {"temp": 28, "weather": "晴"}, 234, True))
+        events.append(
+            create_agent_tool_call(session_id, source, "search_weather", {"city": "杭州", "date": "2026-05-20"})
+        )
+        events.append(
+            create_agent_tool_result(
+                session_id, source, "search_weather", {"city": "杭州"}, {"temp": 28, "weather": "晴"}, 234, True
+            )
+        )
         events.append(create_assertion(session_id, source, "应返回天气数据", True, "object", "object"))
         events.append(create_test_end(session_id, source, "test_weather", True, 500))
 
         # 测试2: 酒店查询 (失败)
         events.append(create_test_start(session_id, source, "test_hotels", "hotels.test.ts > searchHotels"))
-        events.append(create_agent_tool_call(session_id, source, "search_hotels", {"city": "杭州", "checkin": "2026-05-20"}))
-        events.append(create_agent_tool_result(session_id, source, "search_hotels", {"city": "杭州"}, [], 1500, False, "API timeout"))
+        events.append(
+            create_agent_tool_call(session_id, source, "search_hotels", {"city": "杭州", "checkin": "2026-05-20"})
+        )
+        events.append(
+            create_agent_tool_result(
+                session_id, source, "search_hotels", {"city": "杭州"}, [], 1500, False, "API timeout"
+            )
+        )
         events.append(create_assertion(session_id, source, "应返回酒店列表", False, ">0", "0"))
         events.append(create_test_end(session_id, source, "test_hotels", False, 1800, [{"message": "API timeout"}]))
 
         # 测试3: 行程规划
         events.append(create_test_start(session_id, source, "test_trip_plan", "trip-plan.test.ts > generatePlan"))
         events.append(create_agent_tool_call(session_id, source, "generate_trip_plan", {"city": "杭州", "days": 3}))
-        events.append(create_agent_tool_result(session_id, source, "generate_trip_plan", {"city": "杭州"}, {"days": [{"day": 1, "spots": ["西湖", "灵隐寺"]}]}, 3000, True))
+        events.append(
+            create_agent_tool_result(
+                session_id,
+                source,
+                "generate_trip_plan",
+                {"city": "杭州"},
+                {"days": [{"day": 1, "spots": ["西湖", "灵隐寺"]}]},
+                3000,
+                True,
+            )
+        )
         events.append(create_assertion(session_id, source, "应包含景点", True))
         events.append(create_assertion(session_id, source, "应包含天数", True))
         events.append(create_test_end(session_id, source, "test_trip_plan", True, 3500))
@@ -120,40 +143,62 @@ class TestPogongshichongzouIntegration:
         events = []
 
         # 会话开始
-        storage.store_session(TestSession(
-            session_id=session_id,
-            project="pogongshichongzou",
-            framework="gdunit4",
-            started_at=int(time.time() * 1000),
-        ))
+        storage.store_session(
+            ObsSession(
+                session_id=session_id,
+                project="pogongshichongzou",
+                framework="gdunit4",
+                started_at=int(time.time() * 1000),
+            )
+        )
 
         # 测试: 运行流程
         events.append(create_test_start(session_id, source, "test_run_flow", "run_flow_progression_smoke.gd"))
 
         # 游戏状态变化
         events.append(create_game_state_change(session_id, source, "/root/MainMenu", {"screen": "title"}))
-        events.append(create_game_state_change(session_id, source, "/root/Expedition", {"layer": "corridor_1_01", "hp": 100, "gold": 50}))
+        events.append(
+            create_game_state_change(
+                session_id, source, "/root/Expedition", {"layer": "corridor_1_01", "hp": 100, "gold": 50}
+            )
+        )
         events.append(create_assertion(session_id, source, "should_visit_corridor_1_01", True))
 
         # 战斗
-        events.append(create_game_state_change(session_id, source, "/root/Battle", {"enemy": "slime", "enemy_hp": 30, "player_hp": 100}))
-        events.append(create_game_state_change(session_id, source, "/root/Battle", {"enemy": "slime", "enemy_hp": 0, "player_hp": 85}))
+        events.append(
+            create_game_state_change(
+                session_id, source, "/root/Battle", {"enemy": "slime", "enemy_hp": 30, "player_hp": 100}
+            )
+        )
+        events.append(
+            create_game_state_change(
+                session_id, source, "/root/Battle", {"enemy": "slime", "enemy_hp": 0, "player_hp": 85}
+            )
+        )
         events.append(create_assertion(session_id, source, "battle_should_end", True))
 
         # 保存/加载
-        events.append(TestEvent(str(uuid.uuid4()), session_id, int(time.time() * 1000), source, "game.save", {"slot": "slot_1"}))
-        events.append(TestEvent(str(uuid.uuid4()), session_id, int(time.time() * 1000), source, "game.load", {"slot": "slot_1"}))
+        events.append(
+            ObsEvent(str(uuid.uuid4()), session_id, int(time.time() * 1000), source, "game.save", {"slot": "slot_1"})
+        )
+        events.append(
+            ObsEvent(str(uuid.uuid4()), session_id, int(time.time() * 1000), source, "game.load", {"slot": "slot_1"})
+        )
         events.append(create_assertion(session_id, source, "save_load_roundtrip", True))
 
         # 卡牌结算
-        events.append(create_game_state_change(session_id, source, "/root/CardSettlement", {"card": "fire_bolt", "damage": 15}))
+        events.append(
+            create_game_state_change(session_id, source, "/root/CardSettlement", {"card": "fire_bolt", "damage": 15})
+        )
         events.append(create_assertion(session_id, source, "fire_card_deals_damage", True, 15, 15))
 
         events.append(create_test_end(session_id, source, "test_run_flow", True, 5200))
 
         # 测试: 存档损坏
         events.append(create_test_start(session_id, source, "test_save_corruption", "save_slots_corruption_smoke.gd"))
-        events.append(TestEvent(str(uuid.uuid4()), session_id, int(time.time() * 1000), source, "game.load", {"slot": "corrupted"}))
+        events.append(
+            ObsEvent(str(uuid.uuid4()), session_id, int(time.time() * 1000), source, "game.load", {"slot": "corrupted"})
+        )
         events.append(create_assertion(session_id, source, "should_handle_corruption", True))
         events.append(create_test_end(session_id, source, "test_save_corruption", True, 200))
 
@@ -184,12 +229,14 @@ class TestLoopexpeditionIntegration:
         events = []
 
         # 会话开始
-        storage.store_session(TestSession(
-            session_id=session_id,
-            project="loopexpedition",
-            framework="custom",
-            started_at=int(time.time() * 1000),
-        ))
+        storage.store_session(
+            ObsSession(
+                session_id=session_id,
+                project="loopexpedition",
+                framework="custom",
+                started_at=int(time.time() * 1000),
+            )
+        )
 
         # Bot 远征流程
         events.append(create_test_start(session_id, source, "bot_expedition", "bot/full_expedition"))
@@ -199,32 +246,56 @@ class TestLoopexpeditionIntegration:
 
         # 远征节点
         for node_id in ["corridor_1_01_node_1", "corridor_1_01_node_2", "corridor_1_02_node_1"]:
-            events.append(create_game_state_change(session_id, source, f"/root/Expedition/{node_id}", {"hp": 80, "gold": 120}))
+            events.append(
+                create_game_state_change(session_id, source, f"/root/Expedition/{node_id}", {"hp": 80, "gold": 120})
+            )
             events.append(create_assertion(session_id, source, f"node_{node_id}_completed", True))
 
         # Boss 战
-        events.append(create_game_state_change(session_id, source, "/root/Boss", {"boss": "dragon", "boss_hp": 200, "player_hp": 60}))
+        events.append(
+            create_game_state_change(
+                session_id, source, "/root/Boss", {"boss": "dragon", "boss_hp": 200, "player_hp": 60}
+            )
+        )
         events.append(create_assertion(session_id, source, "boss_battle_completed", True))
 
         # 结算
-        events.append(create_game_state_change(session_id, source, "/root/Settlement", {"gold_earned": 150, "cards_earned": 3}))
+        events.append(
+            create_game_state_change(session_id, source, "/root/Settlement", {"gold_earned": 150, "cards_earned": 3})
+        )
         events.append(create_test_end(session_id, source, "bot_expedition", True, 45000))
 
         # 门禁结果
-        events.append(create_gate_result(session_id, source, "PASS", {
-            "test_pass_rate": {"value": 1.0, "threshold": 1.0, "comparator": ">=", "pass": True},
-            "flow_coverage": {"value": 0.95, "threshold": 0.9, "comparator": ">=", "pass": True},
-            "crash_count": {"value": 0, "threshold": 0, "comparator": "<=", "pass": True},
-        }))
+        events.append(
+            create_gate_result(
+                session_id,
+                source,
+                "PASS",
+                {
+                    "test_pass_rate": {"value": 1.0, "threshold": 1.0, "comparator": ">=", "pass": True},
+                    "flow_coverage": {"value": 0.95, "threshold": 0.9, "comparator": ">=", "pass": True},
+                    "crash_count": {"value": 0, "threshold": 0, "comparator": "<=", "pass": True},
+                },
+            )
+        )
 
         # 覆盖率数据
-        events.append(TestEvent(str(uuid.uuid4()), session_id, int(time.time() * 1000), source, "observation.coverage", {
-            "event_coverage": 0.91,
-            "obs_coverage": 0.85,
-            "total_flows": 45,
-            "covered_flows": 41,
-            "uncovered_flows": ["F27 (升级 -> 天赋选择 -> 取消)"],
-        }))
+        events.append(
+            ObsEvent(
+                str(uuid.uuid4()),
+                session_id,
+                int(time.time() * 1000),
+                source,
+                "observation.coverage",
+                {
+                    "event_coverage": 0.91,
+                    "obs_coverage": 0.85,
+                    "total_flows": 45,
+                    "covered_flows": 41,
+                    "uncovered_flows": ["F27 (升级 -> 天赋选择 -> 取消)"],
+                },
+            )
+        )
 
         storage.store_events_batch(events)
 
@@ -233,7 +304,7 @@ class TestLoopexpeditionIntegration:
         assert len(retrieved) > 8
 
         # 验证门禁结果
-        gate = storage.get_session(session_id)
+        storage.get_session(session_id)
         # 门禁结果在事件中
         gate_events = [e for e in retrieved if e["type"] == "report.gate_result"]
         assert len(gate_events) == 1
@@ -247,9 +318,17 @@ class TestLoopexpeditionIntegration:
         # 创建一个有问题的测试序列
         events.append(create_test_start("bug-sess", source, "test_stuck", "bot/stuck_test"))
         events.append(create_game_state_change("bug-sess", source, "/root/Expedition", {"node": "node_1", "hp": 80}))
-        events.append(create_game_state_change("bug-sess", source, "/root/Expedition", {"node": "node_1", "hp": 80}))  # 卡住
-        events.append(create_game_state_change("bug-sess", source, "/root/Expedition", {"node": "node_1", "hp": 80}))  # 卡住
-        events.append(create_bug_candidate("bug-sess", source, "high", "stuck_state", "玩家在同一节点停留超过3步", {"node": "node_1", "steps": 3}))
+        events.append(
+            create_game_state_change("bug-sess", source, "/root/Expedition", {"node": "node_1", "hp": 80})
+        )  # 卡住
+        events.append(
+            create_game_state_change("bug-sess", source, "/root/Expedition", {"node": "node_1", "hp": 80})
+        )  # 卡住
+        events.append(
+            create_bug_candidate(
+                "bug-sess", source, "high", "stuck_state", "玩家在同一节点停留超过3步", {"node": "node_1", "steps": 3}
+            )
+        )
         events.append(create_test_end("bug-sess", source, "test_stuck", True, 1000))
 
         storage.store_events_batch(events)
@@ -285,7 +364,9 @@ class TestCrossProjectAnalysis:
 
             # 一些失败
             all_events.append(create_test_start(session_id, source, "test_fail", "test_fail"))
-            all_events.append(create_test_end(session_id, source, "test_fail", False, 50, [{"message": "assertion failed"}]))
+            all_events.append(
+                create_test_end(session_id, source, "test_fail", False, 50, [{"message": "assertion failed"}])
+            )
 
         storage.store_events_batch(all_events)
 
@@ -310,9 +391,14 @@ class TestCrossProjectAnalysis:
             create_test_start(session_id, source, "t2", "t2"),
             create_assertion(session_id, source, "a2", False),
             create_test_end(session_id, source, "t2", False, 50),
-            create_gate_result(session_id, source, "FAIL", {
-                "pass_rate": {"value": 0.5, "threshold": 1.0, "pass": False},
-            }),
+            create_gate_result(
+                session_id,
+                source,
+                "FAIL",
+                {
+                    "pass_rate": {"value": 0.5, "threshold": 1.0, "pass": False},
+                },
+            ),
         ]
         storage.store_events_batch(events)
 

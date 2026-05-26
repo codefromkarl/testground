@@ -10,32 +10,37 @@
   7. Schema 约束有效性测试：证明 Schema 修复机制确实在修正输出
 """
 
-import json
+import sys
 import time
 import uuid
 from pathlib import Path
 
-import pytest
-import sys
-
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from analyzers.pipeline.schemas import get_schema, SCHEMAS
-from analyzers.pipeline.state import PipelineState
-from analyzers.pipeline.orchestrator import (
-    AnalysisPipeline, PipelineConfig, PipelineResult, RuleBasedAnalyzer, CostExceeded,
-)
-from analyzers.pipeline.agents import get_agent_prompt, AGENT_PROMPTS
-from analyzers.pipeline.runner import _validate_schema, _extract_json, _build_repair_prompt
-from analyzers.bug_discovery import BugDiscoveryAnalyzer
-from analyzers.quality_guard import QualityGuard
 from analyzers.anomaly_detector import AnomalyDetector
-
+from analyzers.bug_discovery import BugDiscoveryAnalyzer
+from analyzers.pipeline.agents import get_agent_prompt
+from analyzers.pipeline.orchestrator import (
+    AnalysisPipeline,
+    PipelineConfig,
+    RuleBasedAnalyzer,
+)
+from analyzers.pipeline.runner import _build_repair_prompt, _extract_json, _validate_schema
+from analyzers.pipeline.schemas import get_schema
+from analyzers.pipeline.state import PipelineState
+from analyzers.quality_guard import QualityGuard
 
 # ─── 工厂函数 ─────────────────────────────────────────────
 
-def _evt(event_type: str, test_name: str = "", session_id: str = "sess-1",
-         project: str = "proj-a", framework: str = "vitest", **extra) -> dict:
+
+def _evt(
+    event_type: str,
+    test_name: str = "",
+    session_id: str = "sess-1",
+    project: str = "proj-a",
+    framework: str = "vitest",
+    **extra,
+) -> dict:
     event = {
         "event_id": f"evt_{uuid.uuid4().hex[:8]}",
         "session_id": session_id,
@@ -50,8 +55,7 @@ def _evt(event_type: str, test_name: str = "", session_id: str = "sess-1",
     return event
 
 
-def _batch(passed=5, failed=0, flaky=0, slow=0, no_assert=0, incomplete=0,
-           project="proj-a") -> list:
+def _batch(passed=5, failed=0, flaky=0, slow=0, no_assert=0, incomplete=0, project="proj-a") -> list:
     """构造一批具有特定问题特征的测试事件"""
     events = []
     for i in range(passed):
@@ -63,8 +67,7 @@ def _batch(passed=5, failed=0, flaky=0, slow=0, no_assert=0, incomplete=0,
     for i in range(failed):
         n = f"test_fail_{i}"
         events.append(_evt("test.start", n, project=project))
-        events.append(_evt("test.fail", n, project=project, duration_ms=50,
-                           errors=[{"message": f"error {i}"}]))
+        events.append(_evt("test.fail", n, project=project, duration_ms=50, errors=[{"message": f"error {i}"}]))
 
     for i in range(flaky):
         n = f"test_flaky_{i}"
@@ -122,12 +125,10 @@ class TestAblation:
         events = _batch(flaky=3)  # 3 个 flaky test
 
         # 完整 Pipeline（有 feedback）
-        full_result, _ = _run_pipeline(events, tmp_path / "full",
-                                       enable_feedback=True, feedback_iterations=2)
+        full_result, _ = _run_pipeline(events, tmp_path / "full", enable_feedback=True, feedback_iterations=2)
 
         # 关闭 Feedback
-        no_fb_result, _ = _run_pipeline(events, tmp_path / "nofb",
-                                        enable_feedback=False)
+        no_fb_result, _ = _run_pipeline(events, tmp_path / "nofb", enable_feedback=False)
 
         # 有 Feedback 应该 >= 无 Feedback 的发现数
         # （反馈循环可能从同类模式中找到更多）
@@ -140,9 +141,7 @@ class TestAblation:
         # 确认有多个同类 finding（3 个 flaky），满足 feedback 条件
         confirmed = full_state.get_confirmed_findings(full_result.run_id)
         flaky_findings = [f for f in confirmed if f.category == "flaky_test"]
-        assert len(flaky_findings) >= 2, (
-            f"需要至少 2 个 flaky finding 触发 feedback，实际 {len(flaky_findings)}"
-        )
+        assert len(flaky_findings) >= 2, f"需要至少 2 个 flaky finding 触发 feedback，实际 {len(flaky_findings)}"
 
     def test_stages_produce_distinct_findings(self, tmp_path):
         """不同阶段产出不同类型的 finding，证明不是透传。
@@ -151,11 +150,11 @@ class TestAblation:
         """
         # 构造同时有多种问题的事件
         events = _batch(
-            passed=3,    # 正常测试
-            flaky=1,     # flaky
-            slow=1,      # 性能回归
-            no_assert=1, # 无断言
-            incomplete=1 # 未完成
+            passed=3,  # 正常测试
+            flaky=1,  # flaky
+            slow=1,  # 性能回归
+            no_assert=1,  # 无断言
+            incomplete=1,  # 未完成
         )
 
         result, state = _run_pipeline(events, tmp_path)
@@ -165,8 +164,7 @@ class TestAblation:
 
         # 至少检测到 3 种不同类型（说明是多个窄 Agent 各自工作）
         assert len(categories) >= 3, (
-            f"只检测到 {len(categories)} 类问题: {categories}，"
-            f"说明可能只有一个大 Agent 而不是多个窄 Agent"
+            f"只检测到 {len(categories)} 类问题: {categories}，说明可能只有一个大 Agent 而不是多个窄 Agent"
         )
 
     def test_recon_scales_tasks_to_problem_complexity(self):
@@ -220,26 +218,24 @@ class TestPipelineVsLegacy:
 
         # Pipeline 至少检测到 3 种不同类问题（flaky + gap + perf）
         assert len(new_categories) >= 3, (
-            f"Pipeline 只检测到 {len(new_categories)} 类: {new_categories}，"
-            f"应该至少覆盖 flaky/gap/perf 3 类"
+            f"Pipeline 只检测到 {len(new_categories)} 类: {new_categories}，应该至少覆盖 flaky/gap/perf 3 类"
         )
 
         # Pipeline 应该检测到旧分析器的关键能力
         # 映射：旧 category → Pipeline category 等价类
         equivalent_checks = {
-            "incomplete_test": "coverage_gap",     # 未完成测试
-            "no_assertion": "assertion_gap",       # 无断言
-            "slow_test": "race_condition",          # 慢测试/性能
-            "test_too_long": "assertion_gap",       # 测试过长
-            "flaky": "flaky_test",                  # flaky test
+            "incomplete_test": "coverage_gap",  # 未完成测试
+            "no_assertion": "assertion_gap",  # 无断言
+            "slow_test": "race_condition",  # 慢测试/性能
+            "test_too_long": "assertion_gap",  # 测试过长
+            "flaky": "flaky_test",  # flaky test
         }
 
         for old_cat, equiv_new in equivalent_checks.items():
             if old_cat in old_categories:
                 # 旧分析器能检测的，Pipeline 的等价类也应该存在
                 assert equiv_new in new_categories, (
-                    f"旧分析器检测到 '{old_cat}'，但 Pipeline 没有对应的 '{equiv_new}'。"
-                    f"Pipeline: {new_categories}"
+                    f"旧分析器检测到 '{old_cat}'，但 Pipeline 没有对应的 '{equiv_new}'。Pipeline: {new_categories}"
                 )
 
     def test_pipeline_provides_structured_report(self, tmp_path):
@@ -330,35 +326,60 @@ class TestValidateFiltersNoise:
         """
         state = PipelineState(tmp_path / "validate.db")
         state.create_run("sess-1", "run-1")
-        state.add_task("run-1", {
-            "task_id": "t1", "agent_type": "flaky_detector",
-            "scope_hint": "test", "target_events": [],
-        })
+        state.add_task(
+            "run-1",
+            {
+                "task_id": "t1",
+                "agent_type": "flaky_detector",
+                "scope_hint": "test",
+                "target_events": [],
+            },
+        )
 
         # 添加一个"可疑" finding
-        state.add_finding("run-1", "t1", {
-            "finding_id": "f1", "category": "flaky_test",
-            "severity": "high", "description": "test_a pass then fail",
-            "evidence": {"event_ids": [], "snippet": "pass=1, fail=1"},
-        })
+        state.add_finding(
+            "run-1",
+            "t1",
+            {
+                "finding_id": "f1",
+                "category": "flaky_test",
+                "severity": "high",
+                "description": "test_a pass then fail",
+                "evidence": {"event_ids": [], "snippet": "pass=1, fail=1"},
+            },
+        )
 
         # 添加一个"误报" finding（其实是首次失败的测试，不是 flaky）
-        state.add_finding("run-1", "t1", {
-            "finding_id": "f2", "category": "flaky_test",
-            "severity": "medium", "description": "test_b failed once",
-            "evidence": {"event_ids": [], "snippet": "fail=1, pass=0"},
-        })
+        state.add_finding(
+            "run-1",
+            "t1",
+            {
+                "finding_id": "f2",
+                "category": "flaky_test",
+                "severity": "medium",
+                "description": "test_b failed once",
+                "evidence": {"event_ids": [], "snippet": "fail=1, pass=0"},
+            },
+        )
 
         # Validate: f1 确认（真的 flaky），f2 拒绝（只是失败一次不是 flaky）
-        state.set_validation("f1", "confirmed", {
-            "verdict": "confirmed",
-            "rationale": "pass + fail in same session = genuine flaky",
-        })
-        state.set_validation("f2", "rejected", {
-            "verdict": "rejected",
-            "rationale": "single failure without prior pass is not flaky",
-            "alternative_explanation": "test may have a real bug, not instability",
-        })
+        state.set_validation(
+            "f1",
+            "confirmed",
+            {
+                "verdict": "confirmed",
+                "rationale": "pass + fail in same session = genuine flaky",
+            },
+        )
+        state.set_validation(
+            "f2",
+            "rejected",
+            {
+                "verdict": "rejected",
+                "rationale": "single failure without prior pass is not flaky",
+                "alternative_explanation": "test may have a real bug, not instability",
+            },
+        )
 
         # 验证
         confirmed = state.get_confirmed_findings("run-1")
@@ -381,7 +402,8 @@ class TestValidateFiltersNoise:
 
         # 无 Validate：所有 findings 直接确认
         result_no_val, state_no_val = _run_pipeline(
-            events, tmp_path / "noval",
+            events,
+            tmp_path / "noval",
             enable_feedback=False,
         )
         # 规则模式自动确认，所以这里看 findings 总数
@@ -390,7 +412,8 @@ class TestValidateFiltersNoise:
         # 有 Validate 管道存在时（LLM 模式下会过滤）
         # 规则模式下 Validate 自动确认，但管道结构上仍然经过 Validate 阶段
         result_with_val, state_with_val = _run_pipeline(
-            events, tmp_path / "withval",
+            events,
+            tmp_path / "withval",
         )
         total_with_val = len(result_with_val.confirmed_findings)
 
@@ -400,9 +423,7 @@ class TestValidateFiltersNoise:
         # 关键：验证 state 里有 validation 记录（说明 Validate 阶段确实执行了）
         all_f = state_with_val.get_all_findings(result_with_val.run_id)
         for f in all_f:
-            assert f.validation_status is not None, (
-                f"Finding {f.finding_id} 没有经过 Validate 阶段"
-            )
+            assert f.validation_status is not None, f"Finding {f.finding_id} 没有经过 Validate 阶段"
 
 
 # ═══════════════════════════════════════════════════════════
@@ -426,14 +447,10 @@ class TestFeedbackExpansion:
         result = pipeline.run(events, session_id="sess-fb")
 
         # 检查 state 中是否有 feedback_tasks
-        fb_rows = state._conn.execute(
-            "SELECT * FROM feedback_tasks WHERE run_id = ?", (result.run_id,)
-        ).fetchall()
+        fb_rows = state._conn.execute("SELECT * FROM feedback_tasks WHERE run_id = ?", (result.run_id,)).fetchall()
 
         # 应该有 feedback 记录（3 个同类 flaky → pattern → 新任务）
-        assert len(fb_rows) > 0, (
-            "没有 feedback_tasks 记录，说明 Feedback 阶段没有生成扩散任务"
-        )
+        assert len(fb_rows) > 0, "没有 feedback_tasks 记录，说明 Feedback 阶段没有生成扩散任务"
 
         state.close()
 
@@ -450,14 +467,10 @@ class TestFeedbackExpansion:
         result = pipeline.run(events, session_id="sess-single")
 
         # 单个 flaky finding 不满足 "同类 >= 2" 的条件
-        fb_rows = state._conn.execute(
-            "SELECT * FROM feedback_tasks WHERE run_id = ?", (result.run_id,)
-        ).fetchall()
+        fb_rows = state._conn.execute("SELECT * FROM feedback_tasks WHERE run_id = ?", (result.run_id,)).fetchall()
 
         # 0 个 feedback task（只有 1 个 flaky，不满足模式检测阈值）
-        assert len(fb_rows) == 0, (
-            f"单个 finding 不应触发 feedback，但生成了 {len(fb_rows)} 个任务"
-        )
+        assert len(fb_rows) == 0, f"单个 finding 不应触发 feedback，但生成了 {len(fb_rows)} 个任务"
 
         state.close()
 
@@ -490,9 +503,7 @@ class TestStateRecovery:
         assert recon is not None, "Recon 结果丢失"
         assert "analysis_tasks" in recon
 
-        tasks = state._conn.execute(
-            "SELECT * FROM analysis_tasks WHERE run_id = ?", (r1.run_id,)
-        ).fetchall()
+        tasks = state._conn.execute("SELECT * FROM analysis_tasks WHERE run_id = ?", (r1.run_id,)).fetchall()
         assert len(tasks) > 0, "Tasks 丢失"
 
         findings = state.get_confirmed_findings(r1.run_id)
@@ -517,14 +528,12 @@ class TestStateRecovery:
         r2 = pipeline.run(events_b, session_id="sess-b")
 
         # Run A 应该有 findings（有 flaky）
-        findings_a = state.get_confirmed_findings(r1.run_id)
+        state.get_confirmed_findings(r1.run_id)
         # Run B 可能有一些 finding（如 no_assertion），但不应有 flaky
         findings_b = state.get_confirmed_findings(r2.run_id)
         categories_b = {f.category for f in findings_b}
 
-        assert "flaky_test" not in categories_b, (
-            "Run B 没有传入 flaky 事件，不应该检测到 flaky"
-        )
+        assert "flaky_test" not in categories_b, "Run B 没有传入 flaky 事件，不应该检测到 flaky"
 
         state.close()
 
@@ -551,9 +560,7 @@ class TestBudgetGuard:
         result = pipeline.run(events, session_id="sess-budget")
 
         # 零预算应该中止
-        assert result.status == "aborted", (
-            f"零预算应该导致 aborted，实际 {result.status}"
-        )
+        assert result.status == "aborted", f"零预算应该导致 aborted，实际 {result.status}"
 
         # State 应该记录为 aborted
         assert state.get_run_status(result.run_id) == "aborted"
@@ -678,9 +685,9 @@ class TestEndToEndValue:
         """
         events = _batch(
             passed=5,
-            flaky=2,       # 2 个 flaky test
-            slow=1,         # 1 个慢测试
-            no_assert=1,    # 1 个无断言测试
+            flaky=2,  # 2 个 flaky test
+            slow=1,  # 1 个慢测试
+            no_assert=1,  # 1 个无断言测试
         )
 
         # ── 旧分析器 ──
@@ -689,18 +696,16 @@ class TestEndToEndValue:
         ad = AnomalyDetector().analyze(events)
 
         old_findings = bd.findings + qg.findings + ad.findings
-        old_categories = {f.get("category") for f in old_findings}
+        {f.get("category") for f in old_findings}
         # 旧分析器没有：质量分、结构化报告、成本追踪、扩散检测
 
         # ── Pipeline ──
-        result, state = _run_pipeline(events, tmp_path,
-                                      enable_feedback=True, feedback_iterations=1)
+        result, state = _run_pipeline(events, tmp_path, enable_feedback=True, feedback_iterations=1)
         new_categories = {f.get("category") for f in result.confirmed_findings}
 
         # Pipeline 应该检测到至少 3 种问题类别
         assert len(new_categories) >= 3, (
-            f"Pipeline 只检测到 {len(new_categories)} 类: {new_categories}，"
-            f"应该至少覆盖 flaky/gap/perf 3 类"
+            f"Pipeline 只检测到 {len(new_categories)} 类: {new_categories}，应该至少覆盖 flaky/gap/perf 3 类"
         )
 
         # Pipeline 独有的价值
@@ -723,8 +728,7 @@ class TestEndToEndValue:
         sick_result, _ = _run_pipeline(sick_events, tmp_path / "sick")
 
         assert healthy_result.quality_score > sick_result.quality_score, (
-            f"健康项目 ({healthy_result.quality_score}) 应该比 "
-            f"有问题的项目 ({sick_result.quality_score}) 质量分高"
+            f"健康项目 ({healthy_result.quality_score}) 应该比 有问题的项目 ({sick_result.quality_score}) 质量分高"
         )
 
     def test_multi_project_cross_contamination_check(self, tmp_path):
@@ -743,9 +747,7 @@ class TestEndToEndValue:
             if f.get("category") == "flaky_test":
                 affected = f.get("affected_tests", [])
                 # flaky finding 应该只涉及 proj-a 的测试
-                assert all("flaky" in t for t in affected), (
-                    f"Flaky finding 影响了非 flaky 测试: {affected}"
-                )
+                assert all("flaky" in t for t in affected), f"Flaky finding 影响了非 flaky 测试: {affected}"
 
 
 # ═══════════════════════════════════════════════════════════
@@ -758,9 +760,13 @@ class TestAgentSpecialization:
 
     def test_agents_have_different_focus(self):
         """每个 Hunt Agent 的 prompt 应该关注不同的问题。"""
-        hunt_agents = ["flaky_detector", "regression_detector",
-                       "semantic_evaluator", "coverage_analyzer",
-                       "performance_analyzer"]
+        hunt_agents = [
+            "flaky_detector",
+            "regression_detector",
+            "semantic_evaluator",
+            "coverage_analyzer",
+            "performance_analyzer",
+        ]
 
         prompts = {a: get_agent_prompt(a) for a in hunt_agents}
 
@@ -777,8 +783,7 @@ class TestAgentSpecialization:
             prompt = prompts[agent]
             has_keyword = any(kw in prompt for kw in keywords)
             assert has_keyword, (
-                f"{agent} 的 prompt 没有提到自己的专有领域关键词 {keywords}。"
-                f"Prompt 可能是通用模板而不是专业化的。"
+                f"{agent} 的 prompt 没有提到自己的专有领域关键词 {keywords}。Prompt 可能是通用模板而不是专业化的。"
             )
 
     def test_validate_prompt_is_adversarial_not_supportive(self):
@@ -795,12 +800,8 @@ class TestAgentSpecialization:
         has_adversarial = any(w in prompt for w in adversarial_words)
         has_supportive = any(w in prompt for w in supportive_words)
 
-        assert has_adversarial, (
-            "Validate prompt 缺少对抗性语言，可能不会真正质疑 findings"
-        )
-        assert not has_supportive, (
-            "Validate prompt 包含支持性语言，可能只是确认 findings 而不是质疑"
-        )
+        assert has_adversarial, "Validate prompt 缺少对抗性语言，可能不会真正质疑 findings"
+        assert not has_supportive, "Validate prompt 包含支持性语言，可能只是确认 findings 而不是质疑"
 
     def test_feedback_prompt_is_expansive_not_repetitive(self):
         """Feedback prompt 应该关注"扩散检测"而不是"重复检测"。
@@ -816,9 +817,5 @@ class TestAgentSpecialization:
         has_expansive = any(w in prompt for w in expansive_words)
         has_repetitive = any(w in prompt for w in repetitive_words)
 
-        assert has_expansive, (
-            "Feedback prompt 缺少扩散性语言，可能只是重复而不是扩展"
-        )
-        assert not has_repetitive, (
-            "Feedback prompt 包含重复性语言"
-        )
+        assert has_expansive, "Feedback prompt 缺少扩散性语言，可能只是重复而不是扩展"
+        assert not has_repetitive, "Feedback prompt 包含重复性语言"

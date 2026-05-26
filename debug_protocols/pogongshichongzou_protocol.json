@@ -1,0 +1,173 @@
+{
+  "project_name": "pogongshichongzou",
+  "version": 1,
+  "created_at": "2026-05-26T09:47:31",
+  "updated_at": "2026-05-26T09:47:31",
+  "entries": [
+    {
+      "id": "entry-GDSCRIPT_ERROR-17b6728b",
+      "kind": "reactive",
+      "signature": {
+        "stage": "build",
+        "error_code": "GDSCRIPT_ERROR",
+        "message_pattern": "Parse Error: Unexpected token"
+      },
+      "root_cause": "GDScript 语法错误，通常是缺少冒号、括号不匹配或缩进问题",
+      "tags": [
+        "syntax",
+        "gdscript"
+      ],
+      "fix_type": "edit",
+      "fix_description": "检查语法：缩进一致性、冒号和括号配对",
+      "fix_patch": "",
+      "occurrences": 0,
+      "contributing_projects": [
+        "pogongshichongzou"
+      ],
+      "created_at": "2026-05-26T09:47:31",
+      "last_matched_at": "2026-05-26T09:47:31"
+    },
+    {
+      "id": "entry-NODE_NOT_FOUND-6eb888cc",
+      "kind": "reactive",
+      "signature": {
+        "stage": "runtime",
+        "error_code": "NODE_NOT_FOUND",
+        "message_pattern": "Node not found:"
+      },
+      "root_cause": "场景树中不存在指定路径的节点",
+      "tags": [
+        "scene_tree",
+        "node_path"
+      ],
+      "fix_type": "edit",
+      "fix_description": "确认节点路径正确，检查场景文件中节点是否已添加",
+      "fix_patch": "",
+      "occurrences": 0,
+      "contributing_projects": [
+        "pogongshichongzou"
+      ],
+      "created_at": "2026-05-26T09:47:31",
+      "last_matched_at": "2026-05-26T09:47:31"
+    },
+    {
+      "id": "entry-INVALID_METHOD-bd23842d",
+      "kind": "reactive",
+      "signature": {
+        "stage": "runtime",
+        "error_code": "INVALID_METHOD",
+        "message_pattern": "Invalid call. Nonexistent function"
+      },
+      "root_cause": "调用了不存在的方法，可能是拼写错误或 API 变更",
+      "tags": [
+        "api",
+        "method"
+      ],
+      "fix_type": "edit",
+      "fix_description": "检查方法名拼写，确认对应 Godot 版本 API",
+      "fix_patch": "",
+      "occurrences": 0,
+      "contributing_projects": [
+        "pogongshichongzou"
+      ],
+      "created_at": "2026-05-26T09:47:31",
+      "last_matched_at": "2026-05-26T09:47:31"
+    },
+    {
+      "id": "entry-SCENE_LOAD_FAIL-d05263a7",
+      "kind": "reactive",
+      "signature": {
+        "stage": "runtime",
+        "error_code": "SCENE_LOAD_FAIL",
+        "message_pattern": "Failed loading resource:"
+      },
+      "root_cause": "场景或资源文件路径错误，或资源未正确导入",
+      "tags": [
+        "resource",
+        "scene"
+      ],
+      "fix_type": "edit",
+      "fix_description": "确认资源路径存在且导入设置正确",
+      "fix_patch": "",
+      "occurrences": 0,
+      "contributing_projects": [
+        "pogongshichongzou"
+      ],
+      "created_at": "2026-05-26T09:47:31",
+      "last_matched_at": "2026-05-26T09:47:31"
+    },
+    {
+      "id": "entry-ASSERT_FAIL-7f5ca8db",
+      "kind": "reactive",
+      "signature": {
+        "stage": "test",
+        "error_code": "ASSERT_FAIL",
+        "message_pattern": "Assertion failed"
+      },
+      "root_cause": "测试断言失败",
+      "tags": [
+        "test",
+        "assertion"
+      ],
+      "fix_type": "edit",
+      "fix_description": "检查断言条件，确认预期值和实际值",
+      "fix_patch": "",
+      "occurrences": 0,
+      "contributing_projects": [
+        "pogongshichongzou"
+      ],
+      "created_at": "2026-05-26T09:47:31",
+      "last_matched_at": "2026-05-26T09:47:31"
+    },
+    {
+      "id": "entry-RUN_GRAPH_ERROR-2eeb1d89",
+      "kind": "reactive",
+      "signature": {
+        "stage": "runtime",
+        "error_code": "RUN_GRAPH_ERROR",
+        "message_pattern": "Run graph node not found",
+        "file_context": "assets/manifests/*.json"
+      },
+      "root_cause": "规则书 run graph 中引用了不存在的节点 ID",
+      "tags": [
+        "pogongshichongzou",
+        "run_graph",
+        "manifest"
+      ],
+      "fix_type": "edit",
+      "fix_description": "检查 manifest JSON 中的 layer 和节点定义",
+      "fix_patch": "",
+      "occurrences": 0,
+      "contributing_projects": [
+        "pogongshichongzou"
+      ],
+      "created_at": "2026-05-26T09:47:31",
+      "last_matched_at": "2026-05-26T09:47:31"
+    },
+    {
+      "id": "entry-EXPEDITION_ERROR-bc7df313",
+      "kind": "reactive",
+      "signature": {
+        "stage": "runtime",
+        "error_code": "EXPEDITION_ERROR",
+        "message_pattern": "Expedition orchestrator not initialized"
+      },
+      "root_cause": "远征协调器未正确初始化就调用了远征操作",
+      "tags": [
+        "loopexpedition",
+        "expedition",
+        "orchestrator"
+      ],
+      "fix_type": "edit",
+      "fix_description": "确认 ExpeditionMode.configure() 已调用",
+      "fix_patch": "",
+      "occurrences": 0,
+      "contributing_projects": [
+        "pogongshichongzou"
+      ],
+      "created_at": "2026-05-26T09:47:31",
+      "last_matched_at": "2026-05-26T09:47:31"
+    }
+  ],
+  "rules": []
+}
