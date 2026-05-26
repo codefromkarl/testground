@@ -18,12 +18,14 @@ if str(_root) not in sys.path:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from gateway.routes import analysis, events, projects, sessions
+from gateway.routes import analysis, events, projects, reports, sessions
 from gateway.routes import screenshots
+from gateway.routes import state as state_router
 from gateway.routes import websocket as ws_router
 from gateway.screenshot_storage import ScreenshotStorage
 from gateway.routes.websocket import ConnectionManager
 from gateway.storage import Storage
+from drivers.godot.state_tracker import GameStateTracker
 
 # ─── 应用初始化 ─────────────────────────────────────────────
 
@@ -50,6 +52,10 @@ app.state.storage = storage
 screenshot_storage = ScreenshotStorage()
 app.state.screenshot_storage = screenshot_storage
 
+# 状态追踪器
+state_tracker = GameStateTracker()
+app.state.state_tracker = state_tracker
+
 # WebSocket 连接管理器
 manager = ConnectionManager()
 app.state.manager = manager
@@ -60,7 +66,9 @@ app.include_router(events.router, tags=["events"])
 app.include_router(sessions.router, tags=["sessions"])
 app.include_router(analysis.router, tags=["analysis"])
 app.include_router(projects.router, tags=["projects"])
+app.include_router(reports.router, tags=["reports"])
 app.include_router(screenshots.router, tags=["screenshots"])
+app.include_router(state_router.router, tags=["state"])
 app.include_router(ws_router.router, tags=["websocket"])
 
 

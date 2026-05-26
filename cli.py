@@ -26,6 +26,8 @@ if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
 from analyzers import AnomalyDetector, BugDiscoveryAnalyzer, QualityGuard, SemanticEvaluator
+from analyzers.alerts import AlertManager, AlertRule
+from analyzers.notifiers import WebhookNotifier
 from analyzers.pipeline import AnalysisPipeline, PipelineConfig, PipelineState
 from gateway.storage import Storage
 from schema.events import EventSource, ObsEvent, create_gate_result
@@ -265,6 +267,218 @@ def cmd_stats(args: argparse.Namespace) -> None:
         print(f"  {etype:<30} {count}")
 
 
+def cmd_alert_test(args: argparse.Namespace) -> None:
+    """测试告警配置"""
+    notifiers = []
+    from analyzers.notifiers import ConsoleNotifier, FileNotifier
+
+    if args.no_console:
+        # 不添加 console，但仍可能有其他渠道
+        pass
+    else:
+        notifiers.append(ConsoleNotifier())
+
+    if args.webhook:
+        webhook_type = args.webhook_type if args.webhook_type != "auto" else "auto"
+        notifiers.append(WebhookNotifier(args.webhook, webhook_type=webhook_type))
+        print(f"✅ Webhook 渠道: {args.webhook} ({webhook_type})")
+
+    if not notifiers:
+        print("❌ 未配置任何通知渠道")
+        sys.exit(1)
+
+    manager = AlertManager(notifiers=notifiers)
+    severity = args.severity
+
+    print(f"🔔 发送测试告警 (severity={severity})...")
+    msg = manager.test_notification(severity=severity)
+    print(f"✅ 测试告警已发送: {msg.finding_id}")
+
+    if args.webhook:
+        print("   请检查 webhook 端是否收到消息")
+
+
+def cmd_alert_history(args: argparse.Namespace) -> None:
+    """查看告警历史"""
+    log_path = args.log or "alerts.jsonl"
+    from analyzers.notifiers import FileNotifier
+
+    notifier = FileNotifier(log_path)
+    history = notifier.read_history(limit=args.limit)
+
+    if not history:
+        print(f"暂无告警历史 (日志文件: {log_path})")
+        return
+
+    print(f"告警历史 ({len(history)} 条, 最近 {args.limit} 条):")
+    print()
+    for entry in history:
+        severity = entry.get("severity", "unknown")
+        icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}.get(severity, "⚪")
+        ts = entry.get("timestamp", 0)
+        time_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)) if ts else "unknown"
+        print(f"  {icon} [{severity.upper()}] {entry.get('category', 'unknown')}")
+        print(f"     时间: {time_str}")
+        print(f"     描述: {entry.get('description', '')[:80]}")
+        print(f"     Finding: {entry.get('finding_id', 'N/A')}")
+        print(f"     Session: {entry.get('session_id', 'N/A')}")
+        print()
+
+
+def cmd_report(args: argparse.Namespace) -> None:
+    """生成测试报告"""
+    from analyzers.report import ReportGenerator
+
+    storage = Storage(args.db)
+    generator = ReportGenerator(storage)
+
+    fmt = args.format
+    output_dir = Path(args.output) if args.output else None
+
+    try:
+        path = generator.generate(args.session_id, format=fmt, output_dir=output_dir)
+        print(f"✅ 报告已生成: {path}")
+        print(f"   格式: {fmt}")
+        print(f"   大小: {path.stat().st_size} bytes")
+    except Exception as e:
+        print(f"❌ 生成失败: {e}")
+        sys.exit(1)
+
+
+def cmd_record(args: argparse.Namespace) -> None:
+    """录制游戏操作序列"""
+    import asyncio
+
+    async def run_record():
+        from drivers.godot.driver import DriverConfig, GodotDriver
+        from drivers.godot.recorder import GameRecorder
+
+        # 连接 Godot
+        config = DriverConfig(host=args.host, port=args.port)
+        driver = GodotDriver(config=config)
+
+        try:
+            await driver.connect()
+        except ConnectionError as e:
+            print(f"❌ 无法连接 Godot: {e}")
+            sys.exit(1)
+
+        # 创建录制器
+        recorder = GameRecorder(
+            driver=driver,
+            output_dir=args.output_dir,
+            auto_screenshot=args.auto_screenshot,
+        )
+
+        # 开始录制
+        metadata = {}
+        if args.project:
+            metadata["project"] = args.project
+        if args.scene:
+            metadata["start_scene"] = args.scene
+
+        session_id = await recorder.start_recording(
+            session_id=args.session_id,
+            metadata=metadata,
+        )
+        print(f"✅ 录制已开始: {session_id}")
+        print(f"   输出目录: {args.output_dir}")
+        print(f"   自动截图: {'是' if args.auto_screenshot else '否'}")
+        print()
+        print("🎮 在 Godot 中进行游戏操作...")
+        print("   按 Ctrl+C 停止录制")
+
+        # 等待用户中断
+        try:
+            while True:
+                await asyncio.sleep(0.1)
+        except KeyboardInterrupt:
+            pass
+
+        # 停止录制
+        result = await recorder.stop_recording()
+        print(f"\n✅ 录制完成:")
+        print(f"   会话 ID: {result.session_id}")
+        print(f"   操作数: {result.action_count}")
+        print(f"   耗时: {result.duration_s:.1f}s")
+        print(f"   文件: {result.json_path}")
+
+        await driver.close()
+
+    try:
+        asyncio.run(run_record())
+    except KeyboardInterrupt:
+        print("\n⏹ 录制中断")
+
+
+def cmd_replay(args: argparse.Namespace) -> None:
+    """回放录制的操作序列"""
+    import asyncio
+
+    async def run_replay():
+        from drivers.godot.driver import DriverConfig, GodotDriver
+        from drivers.godot.replayer import GameReplayer
+
+        # 加载录制
+        replayer = GameReplayer(
+            recording_dir=str(Path(args.recording).parent),
+            verify_screenshots=args.verify_screenshots and not args.no_verify,
+            verify_threshold=args.threshold,
+        )
+
+        try:
+            replayer.load_recording(args.recording)
+        except (FileNotFoundError, ValueError) as e:
+            print(f"❌ 加载录制失败: {e}")
+            sys.exit(1)
+
+        # 连接 Godot
+        config = DriverConfig(host=args.host, port=args.port)
+        if args.output_dir:
+            config.screenshot_dir = args.output_dir
+        driver = GodotDriver(config=config)
+
+        try:
+            await driver.connect()
+        except ConnectionError as e:
+            print(f"❌ 无法连接 Godot: {e}")
+            sys.exit(1)
+
+        # 回放
+        result = await replayer.replay(
+            driver=driver,
+            speed=args.speed,
+            verify=not args.no_verify,
+        )
+
+        # 输出结果
+        print(f"\n{'='*60}")
+        print("📊 回放结果")
+        print(f"{'='*60}")
+        print(f"会话 ID: {result.session_id}")
+        print(f"总步骤: {result.total_steps}")
+        print(f"通过: {result.passed_steps}")
+        print(f"失败: {result.failed_steps}")
+        print(f"通过率: {result.pass_rate:.1%}")
+        print(f"耗时: {result.duration_s:.1f}s")
+
+        if result.passed:
+            print("\n✅ 回放通过")
+        else:
+            print("\n❌ 回放失败")
+            # 显示失败步骤
+            for step in result.steps:
+                if not step.passed:
+                    print(f"   步骤 #{step.index}: {step.action_type} — {step.error}")
+
+        await driver.close()
+
+    try:
+        asyncio.run(run_replay())
+    except KeyboardInterrupt:
+        print("\n⏹ 回放中断")
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     """运行 Driver + Bridge 完整工作流演示
 
@@ -409,6 +623,12 @@ def main() -> None:
     p.add_argument("project", help="项目名称")
     p.add_argument("--days", type=int, default=7, help="统计天数")
 
+    # report
+    p = sub.add_parser("report", help="生成测试报告")
+    p.add_argument("session_id", help="会话 ID")
+    p.add_argument("--format", choices=["html", "json", "md"], default="html", help="报告格式")
+    p.add_argument("--output", "-o", help="输出目录（默认 ./reports）")
+
     # run — Driver + Bridge 工作流演示
     p = sub.add_parser("run", help="运行 Driver + Bridge 完整工作流")
     p.add_argument("project", help="项目名称")
@@ -418,6 +638,39 @@ def main() -> None:
     p.add_argument("--gateway", default="http://localhost:8900", help="Gateway URL")
     p.add_argument("--framework", default="godot_driver", help="框架标识")
     p.add_argument("--verbose", action="store_true", help="详细输出")
+
+    # alert-test — 测试告警配置
+    p = sub.add_parser("alert-test", help="测试告警配置")
+    p.add_argument("--severity", default="high", choices=["low", "medium", "high", "critical"], help="测试告警级别")
+    p.add_argument("--webhook", help="Webhook URL")
+    p.add_argument("--webhook-type", default="auto", choices=["auto", "slack", "feishu"], help="Webhook 类型")
+    p.add_argument("--no-console", action="store_true", help="禁用控制台输出")
+
+    # alert-history — 查看告警历史
+    p = sub.add_parser("alert-history", help="查看告警历史")
+    p.add_argument("--log", help="告警日志文件路径")
+    p.add_argument("--limit", type=int, default=50, help="最大条数")
+
+    # record — 录制游戏操作
+    p = sub.add_parser("record", help="录制游戏操作序列")
+    p.add_argument("--session-id", help="会话 ID（默认自动生成）")
+    p.add_argument("--output-dir", default="recordings", help="录制输出目录")
+    p.add_argument("--host", default="127.0.0.1", help="Godot 主机")
+    p.add_argument("--port", type=int, default=19090, help="Godot 端口")
+    p.add_argument("--auto-screenshot", action="store_true", help="每个操作自动截图")
+    p.add_argument("--project", default="", help="项目名称（元数据）")
+    p.add_argument("--scene", default="", help="初始场景（元数据）")
+
+    # replay — 回放录制的操作
+    p = sub.add_parser("replay", help="回放录制的操作序列")
+    p.add_argument("recording", help="录制 JSON 文件路径")
+    p.add_argument("--speed", type=float, default=1.0, help="回放速度（1.0=原速，2.0=2倍速）")
+    p.add_argument("--no-verify", action="store_true", help="跳过截图验证")
+    p.add_argument("--verify-screenshots", action="store_true", help="启用截图对比验证")
+    p.add_argument("--threshold", type=float, default=0.8, help="截图匹配阈值 (0-1)")
+    p.add_argument("--host", default="127.0.0.1", help="Godot 主机")
+    p.add_argument("--port", type=int, default=19090, help="Godot 端口")
+    p.add_argument("--output-dir", help="回放截图保存目录")
 
     args = parser.parse_args()
 
@@ -435,8 +688,18 @@ def main() -> None:
         cmd_pipeline(args)
     elif args.command == "stats":
         cmd_stats(args)
+    elif args.command == "alert-test":
+        cmd_alert_test(args)
+    elif args.command == "alert-history":
+        cmd_alert_history(args)
     elif args.command == "run":
         cmd_run(args)
+    elif args.command == "report":
+        cmd_report(args)
+    elif args.command == "record":
+        cmd_record(args)
+    elif args.command == "replay":
+        cmd_replay(args)
     else:
         parser.print_help()
 
