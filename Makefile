@@ -92,13 +92,15 @@ print('  result = asserter.assert_exists(\"screenshot.png\", TemplateMatch(templ
 deploy-pogong:  ## 部署测试适配器到破宫之十重奏
 	@echo "=== 部署到 pogongshichongzou ==="
 	@mkdir -p $(PGC_PATH)/addons/test_observability
-	cp adapters/gdunit4/observer.gd $(PGC_PATH)/addons/test_observability/
-	@echo "✅ 已部署 gdunit4 observer"
+	cp adapters/godot/observer.gd $(PGC_PATH)/addons/test_observability/observer.gd
+	cp adapters/gdunit4/observer.gd $(PGC_PATH)/addons/test_observability/observer_compat.gd
+	@echo "✅ 已部署统一 observer (godot/) + 兼容层 (gdunit4/)"
 
 deploy-loop:  ## 部署测试适配器到 Loop Expedition
 	@echo "=== 部署到 loopexpedition ==="
 	@mkdir -p $(LOOP_PATH)/addons/test_observability
-	cp adapters/gdunit4/observer.gd $(LOOP_PATH)/addons/test_observability/
-	@echo "✅ 已部署 gdunit4 observer"
+	cp adapters/godot/observer.gd $(LOOP_PATH)/addons/test_observability/observer.gd
+	cp adapters/gdunit4/observer.gd $(LOOP_PATH)/addons/test_observability/observer_compat.gd
+	@echo "✅ 已部署统一 observer (godot/) + 兼容层 (gdunit4/)"
 
 deploy: deploy-pogong deploy-loop  ## 部署到所有游戏项目

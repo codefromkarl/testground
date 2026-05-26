@@ -23,8 +23,8 @@
 | 项目 | 框架 | 适配器 |
 |------|------|--------|
 | TravelAgent | Vitest | `adapters/vitest/reporter.ts` |
-| pogongshichongzou | gdUnit4 | `adapters/gdunit4/observer.gd` |
-| loopexpedition | gdUnit4 + Python | `adapters/python/emitter.py` |
+| pogongshichongzou | gdUnit4 | `adapters/godot/observer.gd` |
+| loopexpedition | gdUnit4 + Python | `adapters/godot/observer.gd` / `adapters/python/emitter.py` |
 
 ## 快速开始
 
@@ -57,7 +57,8 @@ testground/
 │   └── requirements.txt
 ├── adapters/               # 各框架适配器
 │   ├── vitest/reporter.ts  # Vitest Reporter (TS)
-│   ├── gdunit4/observer.gd # gdUnit4 Observer (GDScript)
+│   ├── godot/observer.gd   # 统一 GDScript Observer (Node 基类，批量发送)
+│   ├── gdunit4/observer.gd  # 兼容层 (RefCounted，委托给 godot/observer.gd)
 │   └── python/emitter.py   # Python EventEmitter
 ├── analyzers/              # AI 分析器
 │   ├── base.py             # 基类
@@ -110,13 +111,39 @@ export default defineConfig({
 
 ### pogongshichongzou / loopexpedition (gdUnit4)
 
+**推荐方式 — 统一适配器（Node 基类，支持批量发送、心跳、全功能）：**
+
 ```gdscript
 # 测试脚本中
+const Observer = preload("res://addons/test_observability/observer.gd")
+var _obs = Observer.new("http://localhost:8900", "pogongshichongzou")
+add_child(_obs)  # 必须加入场景树
+_obs.create_session()
+_obs.on_test_start("test_battle", "res://test/unit/test_battle.gd")
+# ... 执行测试 ...
+_obs.on_test_end("test_battle", true, 120)
+_obs.end_session(1, 1, 0, 120)
+```
+
+**兼容方式 — 无场景树环境（RefCounted 基类，自动委托）：**
+
+```gdscript
+# 旧代码无需修改，自动使用新适配器
 var observer = load("res://addons/test-observability/observer.gd").new("http://localhost:8900")
 observer.on_test_start("test_battle", "res://test/unit/test_battle.gd")
-# ... 执行测试 ...
 observer.on_test_end("test_battle", true, 120)
 ```
+
+统一适配器支持的事件类型：
+- 测试生命周期：`on_test_start`, `on_test_end`, `on_test_skip`
+- 断言：`on_assertion`, `on_visual_assert`
+- 调试协议：`on_debug_match`, `on_debug_repair`, `on_debug_evolve`
+- 评估：`on_bench_result`
+- 游戏事件：`on_scene_change`, `on_state_change`, `on_signal_emitted`, `emit_game_state`, `emit_scene_load`, `emit_signal_event`
+- 存档/读档：`emit_save`, `emit_load`
+- 截图：`emit_screenshot`
+- 报告：`emit_gate_result`, `emit_bug_candidate`
+- 会话管理：`create_session`, `end_session`
 
 ### loopexpedition (Python AI 测试)
 

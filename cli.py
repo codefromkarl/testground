@@ -8,6 +8,7 @@
     python -m cli analyze <session_id>     # 运行 AI 分析（传统模式）
     python -m cli pipeline <session_id>    # 运行分析流水线（多窄 Agent）
     python -m cli stats <project>          # 项目统计
+    python -m cli run <project>            # 运行 Driver + Bridge 完整工作流
 """
 
 from __future__ import annotations
@@ -264,6 +265,109 @@ def cmd_stats(args: argparse.Namespace) -> None:
         print(f"  {etype:<30} {count}")
 
 
+def cmd_run(args: argparse.Namespace) -> None:
+    """运行 Driver + Bridge 完整工作流演示
+
+    演示:
+    1. 启动 EventBridge 连接 Gateway
+    2. 创建 session
+    3. 模拟测试操作并报告事件
+    4. 结束 session 并查看结果
+    """
+    import asyncio
+
+    from drivers.godot.event_bridge import EventBridge
+
+    async def run_demo():
+        # 创建 Driver（无需实际连接 Godot）
+        from drivers.godot.driver import DriverConfig, GodotDriver
+
+        config = DriverConfig(
+            host=args.host,
+            port=args.port,
+            project_type=args.project_type,
+        )
+        driver = GodotDriver(config=config)
+
+        # 创建 Bridge
+        bridge = EventBridge(
+            driver=driver,
+            gateway_url=args.gateway,
+            project=args.project,
+            framework=args.framework,
+        )
+
+        async with bridge:
+            # 创建 session
+            sid = await bridge.start_session(
+                args.project,
+                metadata={"cli_run": True, "driver": "godot"},
+            )
+            print(f"✅ Session 创建: {sid}")
+
+            # 模拟测试流程
+            tests = [
+                ("test_scene_load", True, 250),
+                ("test_click_button", True, 80),
+                ("test_visual_check", True, 150),
+                ("test_battle_flow", False, 500),
+            ]
+
+            for name, passed, duration in tests:
+                await bridge.report_test_start(name)
+                await bridge.report_test_end(name, passed, duration)
+                status = "✅" if passed else "❌"
+                print(f"  {status} {name} ({duration}ms)")
+
+            # 模拟评估
+            await bridge.report_bench_result("build_health", 92.0, True)
+            await bridge.report_bench_result("visual_usability", 75.0, True)
+            print("📊 评估: build_health=92, visual_usability=75")
+
+            # 模拟游戏事件
+            await bridge.report_game_event(
+                "game.state_change",
+                {"scene": "res://battle.tscn", "state": {"turn": 5}},
+            )
+            print("🎮 游戏状态事件已报告")
+
+            # 结束 session
+            gate = {
+                "verdict": "PASS" if all(t[1] for t in tests) else "FAIL",
+                "rules": {"pass_rate": {"value": 0.75, "threshold": 1.0}},
+            }
+            await bridge.end_session(gate_result=gate)
+            print(f"\n🏁 Session 结束: {sid}")
+            print(f"   事件发送: {bridge.sent_count}")
+            print(f"   发送错误: {bridge.error_count}")
+            print(f"   测试总数: {bridge._test_count}")
+            print(f"   通过/失败: {bridge._passed_count}/{bridge._failed_count}")
+
+            # 演示调试报告
+            print("\n🔧 演示调试事件:")
+            await bridge.report_debug_match(
+                entry_id="entry-GDSCRIPT-001",
+                error_code="GDSCRIPT_ERROR",
+                error_message="Parse Error: Unexpected token",
+            )
+            await bridge.report_debug_repair(
+                entry_id="entry-GDSCRIPT-001",
+                fix_description="修复缩进问题",
+                error_code="GDSCRIPT_ERROR",
+            )
+            print("   debug.match + debug.repair 已报告")
+
+    try:
+        asyncio.run(run_demo())
+    except KeyboardInterrupt:
+        print("\n⏹ 用户中断")
+    except Exception as e:
+        print(f"\n❌ 错误: {e}")
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="测试观测平台 CLI")
     parser.add_argument("--db", default="test_observability.db", help="数据库路径")
@@ -305,6 +409,16 @@ def main() -> None:
     p.add_argument("project", help="项目名称")
     p.add_argument("--days", type=int, default=7, help="统计天数")
 
+    # run — Driver + Bridge 工作流演示
+    p = sub.add_parser("run", help="运行 Driver + Bridge 完整工作流")
+    p.add_argument("project", help="项目名称")
+    p.add_argument("--host", default="127.0.0.1", help="Godot 主机")
+    p.add_argument("--port", type=int, default=19090, help="Godot 端口")
+    p.add_argument("--project-type", default="auto", choices=["auto", "loopexpedition", "pogongshichongzou"], help="项目类型")
+    p.add_argument("--gateway", default="http://localhost:8900", help="Gateway URL")
+    p.add_argument("--framework", default="godot_driver", help="框架标识")
+    p.add_argument("--verbose", action="store_true", help="详细输出")
+
     args = parser.parse_args()
 
     if args.command == "import-report":
@@ -321,6 +435,8 @@ def main() -> None:
         cmd_pipeline(args)
     elif args.command == "stats":
         cmd_stats(args)
+    elif args.command == "run":
+        cmd_run(args)
     else:
         parser.print_help()
 
