@@ -1,6 +1,6 @@
 .PHONY: help install gateway test lint clean docker-up docker-down \
-        bench-pogong bench-loop visual-demo protocol-init protocol-stats \
-        godot-bench godot-e2e
+	bench-pogong bench-loop visual-demo protocol-init protocol-stats \
+	godot-bench godot-e2e dashboard dashboard-build dashboard-install
 
 help:  ## 显示帮助
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -31,7 +31,16 @@ docker-up:  ## Docker 启动
 docker-down:  ## Docker 停止
 	docker-compose down
 
-timeline:  ## 打开 Timeline 页面
+dashboard:  ## 启动 Dashboard 前端 (开发模式)
+	cd dashboard && npm run dev
+
+dashboard-build:  ## 构建 Dashboard 前端
+	cd dashboard && npm run build
+
+dashboard-install:  ## 安装 Dashboard 依赖
+	cd dashboard && npm install
+
+timeline:  ## 打开 Timeline 页面（旧版）
 	@echo "打开 http://localhost:8901"
 	@python -m http.server 8901 --directory timeline 2>/dev/null &
 
