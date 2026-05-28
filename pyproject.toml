@@ -1,2 +1,16 @@
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::pytest.PytestUnknownMarkWarning",
+]
+markers = [
+    "asyncio: mark a test as an asyncio test",
+    "fast: <1s per test (unit, no I/O)",
+    "medium: <5s per test (integration, mock I/O)",
+    "slow: >5s (e2e, Godot runtime, screenshots)",
+    "godot: requires Godot binary",
+    "visual: requires screenshot comparison or rendering",
+    "replay: requires recording/replay infrastructure",
+    "llm: mark a test as requiring LLM API",
+]

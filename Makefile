@@ -1,4 +1,4 @@
-.PHONY: help install gateway test lint clean docker-up docker-down \
+.PHONY: help install gateway test test-fast test-medium test-slow test-godot test-visual test-guard lint clean docker-up docker-down \
 	bench-pogong bench-loop visual-demo protocol-init protocol-stats \
 	godot-bench godot-e2e dashboard dashboard-build dashboard-install
 
@@ -12,12 +12,31 @@ install:  ## 安装依赖
 gateway:  ## 启动网关 (开发模式)
 	cd gateway && uvicorn main:app --reload --host 0.0.0.0 --port 8900
 
-test:  ## 运行平台自身测试
-	python -m pytest tests/ -v -m "not llm" --tb=short --cov=gateway --cov=schema --cov=analyzers --cov=adapters/python --cov-report=term-missing
+test:  ## 运行平台自身测试（排除 llm 和 slow）
+	python -m pytest tests/ -v -m "not llm and not slow" --tb=short --cov=gateway --cov=schema --cov=analyzers --cov=adapters/python --cov-report=term-missing
 
-lint:  ## 代码检查 (ruff)
+test-fast:  ## 本地快速反馈 (<1s, unit only)
+	python -m pytest tests/ -v -m fast --tb=short -x
+
+test-medium:  ## 集成测试 (<5s, mock I/O)
+	python -m pytest tests/ -v -m medium --tb=short -x
+
+test-slow:  ## E2E + Godot 运行时 (>5s)
+	python -m pytest tests/ -v -m slow --tb=short
+
+test-godot:  ## 需要 Godot 的测试
+	python -m pytest tests/ -v -m godot --tb=short
+
+test-visual:  ## 视觉/截图测试
+	python -m pytest tests/ -v -m visual --tb=short
+
+test-guard:  ## 测试分层守卫
+	python scripts/test_layer_guard.py
+
+lint:  ## 代码检查 (ruff + test guard)
 	ruff check .
 	ruff format --check .
+	python scripts/test_layer_guard.py
 
 clean:  ## 清理临时文件
 	rm -f gateway/test_observability.db
