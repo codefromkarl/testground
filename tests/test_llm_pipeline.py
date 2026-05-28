@@ -29,11 +29,14 @@ from analyzers.pipeline.state import PipelineState
 
 # ─── 标记 ─────────────────────────────────────────────────
 
-pytestmark = pytest.mark.llm
+_llm_mark = pytest.mark.llm
+_slow_mark = pytest.mark.slow
 
 # 跳过条件：LLM 不可用
 if not is_llm_available():
-    pytestmark = pytest.mark.skip(reason="LLM 不可用（需要 CPA_API_KEY 或 LLM_API_KEY）")
+    pytestmark = [_llm_mark, _slow_mark, pytest.mark.skip(reason="LLM 不可用（需要 CPA_API_KEY 或 LLM_API_KEY）")]
+else:
+    pytestmark = [_llm_mark, _slow_mark]
 
 
 # ─── 测试数据 ─────────────────────────────────────────────

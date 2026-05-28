@@ -12,6 +12,10 @@ from pathlib import Path
 
 import yaml
 
+import pytest
+
+pytestmark = pytest.mark.fast
+
 # 项目根目录
 ROOT = Path(__file__).parent.parent
 

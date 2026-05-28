@@ -3,6 +3,8 @@
 import json
 import sys
 import time
+
+import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +12,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from analyzers.alerts import DEFAULT_RULES, SEVERITY_ORDER, AlertManager, AlertRule
 from analyzers.notifiers import AlertMessage, ConsoleNotifier, FileNotifier, Notifier, WebhookNotifier
+
+pytestmark = pytest.mark.medium
 
 # ─── 测试辅助 ─────────────────────────────────────────────
 

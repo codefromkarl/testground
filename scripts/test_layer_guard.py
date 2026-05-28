@@ -95,10 +95,17 @@ def get_staged_py_files() -> list[str]:
 
 
 def _file_has_marker(filepath: Path, marker: str) -> bool:
-    """检查文件是否包含指定 pytest marker"""
+    """检查文件是否包含指定 pytest marker（装饰器或模块级 pytestmark）"""
     try:
         content = filepath.read_text(encoding="utf-8")
-        return f"@pytest.mark.{marker}" in content
+        # 装饰器语法: @pytest.mark.fast
+        if f"@pytest.mark.{marker}" in content:
+            return True
+        # 模块级 pytestmark: pytestmark = pytest.mark.fast
+        # 或列表形式: pytestmark = [pytest.mark.fast, pytest.mark.medium]
+        if re.search(rf"pytestmark\s*=\s*\[?[^\]]*pytest\.mark\.\b{marker}\b", content):
+            return True
+        return False
     except Exception:
         return False
 
@@ -137,9 +144,10 @@ def scan_fast_tests_for_heavy_io(findings: list) -> None:
             if f.name in UNIT_EXCEPTIONS:
                 continue
 
-            # 检查是否有 @pytest.mark.fast 或 @pytest.mark.medium
+            # 检查分层标记
             is_fast = _file_has_marker(f, "fast")
             is_medium = _file_has_marker(f, "medium")
+            is_slow = _file_has_marker(f, "slow")
 
             try:
                 content = f.read_text(encoding="utf-8")
@@ -148,6 +156,8 @@ def scan_fast_tests_for_heavy_io(findings: list) -> None:
 
             for pattern, description in HEAVY_IO_PATTERNS:
                 if re.search(pattern, content):
+                    if is_slow:
+                        continue  # slow 测试允许重型 I/O
                     level = "ERROR" if is_fast else ("WARNING" if not is_medium else "INFO")
                     if level == "INFO":
                         continue
@@ -197,9 +207,10 @@ def scan_unmarked_tests(findings: list) -> None:
         except Exception:
             continue
 
-        # 检查是否有任何 pytest.mark 分层标记
-        has_marker = bool(re.search(r"@pytest\.mark\.(fast|medium|slow|godot|visual|replay|llm)", content))
-        if not has_marker:
+        # 检查是否有任何 pytest.mark 分层标记（装饰器或模块级 pytestmark）
+        has_decorator = bool(re.search(r"@pytest\.mark\.(fast|medium|slow|godot|visual|replay|llm)", content))
+        has_module_mark = bool(re.search(r"pytestmark\s*=\s*(\[?[^\]]*)pytest\.mark\.(fast|medium|slow|godot|visual|replay|llm)", content))
+        if not has_decorator and not has_module_mark:
             findings.append(Finding(
                 file=str(f.relative_to(REPO_ROOT)),
                 level="WARNING",

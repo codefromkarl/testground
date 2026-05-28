@@ -14,6 +14,8 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+pytestmark = pytest.mark.slow
+
 from drivers.godot.event_bridge import EventBridge
 
 # ─── Fixtures ──────────────────────────────────────────────

@@ -13,9 +13,13 @@
 import sys
 import time
 import uuid
+
+import pytest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+pytestmark = pytest.mark.medium
 
 from analyzers.anomaly_detector import AnomalyDetector
 from analyzers.bug_discovery import BugDiscoveryAnalyzer

@@ -7,6 +7,8 @@ import time
 
 import pytest
 from fastapi import FastAPI
+
+pytestmark = pytest.mark.medium
 from fastapi.testclient import TestClient
 
 from drivers.godot.state_tracker import (

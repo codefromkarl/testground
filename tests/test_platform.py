@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.medium
+
 # 将项目根目录加入 path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 

@@ -17,7 +17,7 @@ from analyzers.semantic_eval import EVAL_PROMPT_TEMPLATE, SemanticEvaluator
 from schema.events import EventSource, ObsEvent, create_agent_tool_call
 
 # 标记为 llm 测试，需要 LLM 网关运行
-pytestmark = pytest.mark.llm
+pytestmark = [pytest.mark.llm, pytest.mark.slow]
 
 
 # ─── LLMClient 测试 ─────────────────────────────────────────

@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.medium
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from analyzers.pipeline.agents import AGENT_PROMPTS, get_agent_prompt

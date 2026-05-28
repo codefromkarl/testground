@@ -9,6 +9,8 @@ import pytest
 
 from drivers.godot.event_bridge import EventBridge
 
+pytestmark = pytest.mark.medium
+
 # ─── Fixtures ──────────────────────────────────────────
 
 

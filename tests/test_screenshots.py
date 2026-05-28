@@ -12,6 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+pytestmark = pytest.mark.medium
+
 # 创建测试用的 PNG 图片
 def create_test_png(width: int = 100, height: int = 100, color: tuple = (255, 0, 0)) -> bytes:
     """创建测试用 PNG 图片"""
