@@ -11,7 +11,7 @@ jobs:
     name: Test Layer Guard
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
       - run: python scripts/test_layer_guard.py
@@ -24,7 +24,7 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: test-fast
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
       - name: Install dependencies
@@ -59,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: test-medium
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
       - name: Install dependencies
@@ -83,7 +83,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
       - name: Install linter
