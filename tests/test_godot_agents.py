@@ -22,6 +22,11 @@ _tmp_dir = Path(tempfile.mkdtemp())
 
 
 # ─── 工具函数 ─────────────────────────────────────────────
+# TODO: 迁移到 tests/factories/events.py（make_event）
+# 当前 _make_event() 接口与 make_event() 不同：
+#   - _make_event(event_type, data, ...) 接受 data 字典
+#   - make_event(event_type, ..., data=...) 通过 data 参数支持，已兼容
+# 迁移时将 _make_event("type", {"key": "val"}) 改为 make_event("type", data={"key": "val"})
 
 
 def _make_event(event_type: str, data: dict, project="test_game", framework="gdunit4") -> dict:

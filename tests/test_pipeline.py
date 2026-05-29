@@ -2,8 +2,6 @@
 
 import json
 import sys
-import time
-import uuid
 from pathlib import Path
 
 import pytest
@@ -12,68 +10,12 @@ pytestmark = pytest.mark.medium
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from tests.factories import make_event, make_events_batch
+
 from analyzers.pipeline.agents import AGENT_PROMPTS, get_agent_prompt
 from analyzers.pipeline.orchestrator import AnalysisPipeline, PipelineConfig, RuleBasedAnalyzer
 from analyzers.pipeline.schemas import SCHEMAS, get_schema, schema_as_text
 from analyzers.pipeline.state import PipelineState
-
-# ─── 测试数据工厂 ─────────────────────────────────────────
-
-
-def make_event(
-    event_type: str,
-    test_name: str = "",
-    session_id: str = "sess-1",
-    project: str = "test-proj",
-    framework: str = "vitest",
-    duration_ms: float = 0,
-    **extra,
-) -> dict:
-    """创建测试事件"""
-    event = {
-        "event_id": f"evt_{uuid.uuid4().hex[:8]}",
-        "session_id": session_id,
-        "timestamp": int(time.time() * 1000),
-        "source": {"framework": framework, "project": project},
-        "type": event_type,
-        "data": {},
-    }
-    if test_name:
-        event["data"]["test_name"] = test_name
-    if duration_ms:
-        event["data"]["duration_ms"] = duration_ms
-    event["data"].update(extra)
-    return event
-
-
-def make_events_batch(passed: int = 5, failed: int = 1, flaky: int = 0, slow: int = 0, project: str = "proj-a") -> list:
-    """创建一批测试事件"""
-    events = []
-    for i in range(passed):
-        name = f"test_pass_{i}"
-        events.append(make_event("test.start", name, project=project))
-        events.append(make_event("assert.pass", name, project=project))
-        events.append(make_event("test.end", name, project=project, duration_ms=100 + i * 10))
-
-    for i in range(failed):
-        name = f"test_fail_{i}"
-        events.append(make_event("test.start", name, project=project))
-        events.append(make_event("test.fail", name, project=project, duration_ms=50))
-
-    for i in range(flaky):
-        name = f"test_flaky_{i}"
-        events.append(make_event("test.start", name, project=project))
-        events.append(make_event("test.end", name, project=project, duration_ms=200))
-        # 同一测试再次执行但失败
-        events.append(make_event("test.start", name, project=project))
-        events.append(make_event("test.fail", name, project=project, duration_ms=300))
-
-    for i in range(slow):
-        name = f"test_slow_{i}"
-        events.append(make_event("test.start", name, project=project))
-        events.append(make_event("test.end", name, project=project, duration_ms=60000))
-
-    return events
 
 
 # ─── Schema 测试 ──────────────────────────────────────────

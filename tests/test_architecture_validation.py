@@ -35,6 +35,12 @@ from analyzers.pipeline.state import PipelineState
 from analyzers.quality_guard import QualityGuard
 
 # ─── 工厂函数 ─────────────────────────────────────────────
+# TODO: 迁移到 tests/factories/events.py（make_event, make_events_batch）
+# 当前 _evt() 和 _batch() 与 tests/factories/events.py 中的 make_event() 和 make_events_batch() 功能重复
+# 迁移时需要注意：
+#   - _batch() 比 make_events_batch() 多了 no_assert 和 incomplete 参数
+#   - _evt() 的 project 默认值是 "proj-a"，make_event() 是 "test-proj"
+#   - _batch() 的 failed 默认值是 0，make_events_batch() 是 1
 
 
 def _evt(

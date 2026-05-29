@@ -40,6 +40,12 @@ else:
 
 
 # ─── 测试数据 ─────────────────────────────────────────────
+# TODO: 迁移到 tests/factories/events.py（make_event）
+# 当前 _realistic_events() 中的 _evt() 是局部函数，硬编码了 session/project/framework
+# 迁移时可以改为：
+#   from tests.factories import make_event
+#   _evt = lambda etype, **kw: make_event(etype, session_id="sess-travel-agent-ci-42",
+#                                          project="TravelAgent", framework="vitest", **kw)
 
 
 def _realistic_events():
