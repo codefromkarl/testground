@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: test-layer-guard
+        name: Test Layer Guard
+        entry: python scripts/test_layer_guard.py --staged
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
