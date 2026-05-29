@@ -1,4 +1,5 @@
 [tool.pytest.ini_options]
+addopts = "-n auto --dist=loadfile"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 filterwarnings = [
