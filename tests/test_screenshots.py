@@ -12,6 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.visual.framework import VisualAssertions
+
 pytestmark = pytest.mark.medium
 
 # 创建测试用的 PNG 图片
@@ -671,6 +673,111 @@ class TestScreenshotStorage:
         assert deleted == 2
         assert storage.count_screenshots("test") == 0
         assert storage.count_screenshots("other") == 1
+
+
+# ─── VisualAssertions 集成对比 ─────────────────────────────
+# 以下测试展示 VisualAssertions API 与原有手写对比逻辑的差异。
+#
+# 【旧方式】手动构建图片 → 手动对比像素/百分比 → 手动断言
+# 【新方式】写入临时 PNG → 调用 VisualAssertions → 一行断言
+
+
+class TestVisualAssertionsIntegration:
+    """使用 VisualAssertions API 替代手写截图对比逻辑。
+
+    旧方式示例 (TestScreenshotDiff.test_diff_identical):
+        resp1 = client.post(...)
+        resp2 = client.post(...)
+        id1, id2 = ...
+        response = client.post("/screenshots/diff", json={...})
+        data = response.json()
+        assert data["diff"]["diff_percentage"] == 0.0
+        assert data["diff"]["diff_pixels"] == 0
+
+    新方式 (本类):
+        va = VisualAssertions(output_dir=..., baseline_dir=...)
+        va.assert_screenshots_equal("name", img1_path, img2_path)
+        # 或者 baseline 自动管理:
+        va.assert_no_visual_regression("name", img_path)
+    """
+
+    @pytest.fixture
+    def va(self, tmp_path: Path) -> VisualAssertions:
+        return VisualAssertions(
+            output_dir=str(tmp_path / "visual_output"),
+            baseline_dir=str(tmp_path / "baselines"),
+        )
+
+    def _save_tmp_png(self, tmp_path: Path, name: str, color: tuple = (255, 0, 0)) -> str:
+        """Save a synthetic PNG to a temp path and return the string path."""
+        from PIL import Image
+        path = tmp_path / name
+        img = Image.new("RGB", (100, 100), color)
+        img.save(path)
+        return str(path)
+
+    def test_assert_screenshots_equal_passes(self, tmp_path: Path, va: VisualAssertions):
+        """旧方式: 手动 POST diff endpoint → assert diff_percentage == 0.0
+        新方式: 一行 assert_screenshots_equal"""
+        img1 = self._save_tmp_png(tmp_path, "same_a.png", color=(255, 0, 0))
+        img2 = self._save_tmp_png(tmp_path, "same_b.png", color=(255, 0, 0))
+
+        va.assert_screenshots_equal("identical_check", img1, img2, tolerance=0.05)
+        assert va.get_summary()["passed"] == 1
+
+    def test_assert_screenshots_equal_fails(self, tmp_path: Path, va: VisualAssertions):
+        """旧方式: 手动 POST diff → assert diff_percentage > 0
+        新方式: assert_screenshots_equal 内部自动 raise"""
+        img1 = self._save_tmp_png(tmp_path, "red.png", color=(255, 0, 0))
+        img2 = self._save_tmp_png(tmp_path, "green.png", color=(0, 255, 0))
+
+        with pytest.raises(AssertionError, match="Screenshots differ"):
+            va.assert_screenshots_equal("different_check", img1, img2, tolerance=0.05)
+        assert va.get_summary()["failed"] == 1
+
+    def test_assert_no_visual_regression_baseline_flow(self, tmp_path: Path, va: VisualAssertions):
+        """旧方式: 手动计算 SSIM → 手动断言阈值
+        新方式: assert_no_visual_regression 自动管理 baseline"""
+        img = self._save_tmp_png(tmp_path, "game_state.png", color=(100, 150, 200))
+
+        # 首次运行: 自动创建 baseline
+        va.assert_no_visual_regression("game_state", img)
+        assert va.get_summary()["passed"] == 1
+
+    def test_assert_no_visual_regression_detects_change(self, tmp_path: Path):
+        """Baseline 存在时，不同截图触发 regression 报警。"""
+        from tests.visual.framework import VisualRegressionDetector
+
+        baseline_dir = tmp_path / "baselines"
+        img_orig = self._save_tmp_png(tmp_path, "original.png", color=(50, 50, 50))
+        img_new = self._save_tmp_png(tmp_path, "changed.png", color=(200, 200, 200))
+
+        # Seed baseline
+        detector = VisualRegressionDetector(str(baseline_dir))
+        detector.check_regression("ui_element", img_orig)
+
+        va = VisualAssertions(
+            output_dir=str(tmp_path / "out"),
+            baseline_dir=str(baseline_dir),
+        )
+        with pytest.raises(AssertionError, match="Visual regression"):
+            va.assert_no_visual_regression("ui_element", img_new)
+        assert va.get_summary()["failed"] == 1
+
+    def test_summary_aggregation(self, tmp_path: Path, va: VisualAssertions):
+        """多次断言后 summary 正确聚合。"""
+        img_a = self._save_tmp_png(tmp_path, "a.png", color=(0, 0, 0))
+        img_b = self._save_tmp_png(tmp_path, "b.png", color=(0, 0, 0))
+        img_c = self._save_tmp_png(tmp_path, "c.png", color=(255, 255, 255))
+
+        va.assert_screenshots_equal("pass1", img_a, img_b)
+        with pytest.raises(AssertionError):
+            va.assert_screenshots_equal("fail1", img_a, img_c)
+
+        summary = va.get_summary()
+        assert summary["passed"] == 1
+        assert summary["failed"] == 1
+        assert summary["total"] == 2
 
 
 if __name__ == "__main__":

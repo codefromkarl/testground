@@ -15,7 +15,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Union
 
 
 class ChangeType(str, Enum):
@@ -162,6 +162,92 @@ def deep_diff(
 
 
 _SENTINEL = object()
+
+
+@dataclass
+class DiffConfig:
+    """容差 diff 配置
+
+    tolerances: 字段路径 → 容差值（绝对值差 <= tolerance 则忽略）
+    strict_fields: 使用精确比较的字段路径集合
+    """
+
+    tolerances: Dict[str, Union[int, float]] = field(default_factory=dict)
+    strict_fields: Set[str] = field(default_factory=set)
+
+
+def _resolve_tolerance(path: str, config: DiffConfig) -> Optional[Union[int, float]]:
+    """根据 DiffConfig 解析某路径的容差值
+
+    Returns:
+        容差值（精确比较返回 0），None 表示不适用容差逻辑
+    """
+    if path in config.strict_fields:
+        return 0
+    if path in config.tolerances:
+        return config.tolerances[path]
+    # 未配置的字段：精确比较
+    return 0
+
+
+def deep_diff_with_tolerance(
+    old: Dict[str, Any],
+    new: Dict[str, Any],
+    config: DiffConfig,
+    prefix: str = "",
+) -> List[FieldChange]:
+    """计算带容差的深度差异
+
+    对 tolerances 中配置的字段使用容差比较（|new - old| <= tolerance 则忽略），
+    对 strict_fields 和未配置字段使用精确比较。
+
+    Args:
+        old: 旧状态
+        new: 新状态
+        config: 容差配置
+        prefix: 字段路径前缀（递归用）
+
+    Returns:
+        变更列表（与 deep_diff 返回类型一致）
+    """
+    changes: List[FieldChange] = []
+
+    all_keys = set(old.keys()) | set(new.keys())
+
+    for key in sorted(all_keys):
+        path = f"{prefix}.{key}" if prefix else key
+        old_val = old.get(key, _SENTINEL)
+        new_val = new.get(key, _SENTINEL)
+
+        # key 只在 new 中
+        if old_val is _SENTINEL:
+            changes.append(FieldChange(path=path, change_type=ChangeType.ADDED, new_value=new_val))
+            continue
+
+        # key 只在 old 中
+        if new_val is _SENTINEL:
+            changes.append(FieldChange(path=path, change_type=ChangeType.REMOVED, old_value=old_val))
+            continue
+
+        # 两边都有，递归比较嵌套字典
+        if isinstance(old_val, dict) and isinstance(new_val, dict):
+            changes.extend(deep_diff_with_tolerance(old_val, new_val, config, prefix=path))
+        elif old_val != new_val:
+            # 值不同，检查容差
+            tolerance = _resolve_tolerance(path, config)
+            if tolerance is not None and isinstance(old_val, (int, float)) and isinstance(new_val, (int, float)):
+                if abs(new_val - old_val) <= tolerance:
+                    continue  # 在容差范围内，跳过
+            changes.append(
+                FieldChange(
+                    path=path,
+                    change_type=ChangeType.MODIFIED,
+                    old_value=old_val,
+                    new_value=new_val,
+                )
+            )
+
+    return changes
 
 
 class GameStateTracker:

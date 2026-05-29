@@ -1,0 +1,6 @@
+# Baseline screenshots are auto-generated on first run.
+# Do not commit — regenerate in CI or locally.
+*.png
+
+# Keep the README
+!README.md

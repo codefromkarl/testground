@@ -13,9 +13,11 @@ from fastapi.testclient import TestClient
 
 from drivers.godot.state_tracker import (
     ChangeType,
+    DiffConfig,
     GameStateTracker,
     StateSnapshot,
     deep_diff,
+    deep_diff_with_tolerance,
 )
 from schema.events import ObsSession
 
@@ -123,6 +125,116 @@ class TestDeepDiff:
         assert len(changes) == 1
         assert changes[0].old_value == "hello"
         assert changes[0].new_value == 42
+
+
+# ─── 容差 diff 测试 ────────────────────────────────────
+
+
+class TestDeepDiffWithTolerance:
+    """测试带容差的深度 diff"""
+
+    def test_within_tolerance_no_change(self):
+        """hero_hp: 100 vs 103（容差 5）→ 不报告变更"""
+        config = DiffConfig(tolerances={"hero_hp": 5})
+        changes = deep_diff_with_tolerance(
+            {"hero_hp": 100},
+            {"hero_hp": 103},
+            config,
+        )
+        assert changes == []
+
+    def test_exceeds_tolerance_reports_modified(self):
+        """hero_hp: 100 vs 110（容差 5）→ 报告 MODIFIED"""
+        config = DiffConfig(tolerances={"hero_hp": 5})
+        changes = deep_diff_with_tolerance(
+            {"hero_hp": 100},
+            {"hero_hp": 110},
+            config,
+        )
+        assert len(changes) == 1
+        assert changes[0].path == "hero_hp"
+        assert changes[0].change_type == ChangeType.MODIFIED
+        assert changes[0].old_value == 100
+        assert changes[0].new_value == 110
+
+    def test_strict_field_exact_change(self):
+        """hero_level: 1 vs 2（strict field）→ 精确报告变更"""
+        config = DiffConfig(tolerances={"hero_level": 100}, strict_fields={"hero_level"})
+        changes = deep_diff_with_tolerance(
+            {"hero_level": 1, "hero_hp": 100},
+            {"hero_level": 2, "hero_hp": 100},
+            config,
+        )
+        assert len(changes) == 1
+        assert changes[0].path == "hero_level"
+        assert changes[0].change_type == ChangeType.MODIFIED
+        assert changes[0].old_value == 1
+        assert changes[0].new_value == 2
+
+    def test_backward_compatible_empty_config(self):
+        """向后兼容：空 DiffConfig 行为与 deep_diff() 一致"""
+        config = DiffConfig()
+        old = {"hp": 100, "mp": 50, "pos": {"x": 10, "y": 20}}
+        new = {"hp": 80, "mp": 50, "pos": {"x": 10, "y": 20}, "shield": True}
+
+        result_exact = deep_diff(old, new)
+        result_tolerance = deep_diff_with_tolerance(old, new, config)
+
+        # 同样的变更数量
+        assert len(result_exact) == len(result_tolerance)
+
+        # 路径和变更类型一致
+        exact_map = {c.path: c for c in result_exact}
+        tol_map = {c.path: c for c in result_tolerance}
+        assert set(exact_map.keys()) == set(tol_map.keys())
+        for path in exact_map:
+            assert exact_map[path].change_type == tol_map[path].change_type
+            assert exact_map[path].old_value == tol_map[path].old_value
+            assert exact_map[path].new_value == tol_map[path].new_value
+
+    def test_nested_tolerance(self):
+        """嵌套字段路径容差"""
+        config = DiffConfig(tolerances={"player.hp": 5, "player.pos.x": 3})
+        changes = deep_diff_with_tolerance(
+            {"player": {"hp": 100, "pos": {"x": 10, "y": 20}}},
+            {"player": {"hp": 103, "pos": {"x": 15, "y": 20}}},
+            config,
+        )
+        # hp 100→103 差3 <= 容差5 → 忽略; x 10→15 差5 > 容差3 → 报告
+        assert len(changes) == 1
+        assert changes[0].path == "player.pos.x"
+        assert changes[0].change_type == ChangeType.MODIFIED
+
+    def test_unconfigured_field_exact_comparison(self):
+        """未在 tolerances 或 strict_fields 中的字段使用精确比较"""
+        config = DiffConfig(tolerances={"hp": 10})
+        changes = deep_diff_with_tolerance(
+            {"hp": 100, "mp": 50},
+            {"hp": 103, "mp": 51},
+            config,
+        )
+        # hp 差3 <= 容差10 → 忽略; mp 未配置 → 精确比较 → 报告
+        assert len(changes) == 1
+        assert changes[0].path == "mp"
+        assert changes[0].old_value == 50
+        assert changes[0].new_value == 51
+
+    def test_float_tolerance(self):
+        """浮点数容差"""
+        config = DiffConfig(tolerances={"damage": 0.5})
+        changes = deep_diff_with_tolerance(
+            {"damage": 10.0},
+            {"damage": 10.3},
+            config,
+        )
+        assert changes == []  # 0.3 <= 0.5
+
+        changes = deep_diff_with_tolerance(
+            {"damage": 10.0},
+            {"damage": 10.6},
+            config,
+        )
+        assert len(changes) == 1  # 0.6 > 0.5
 
 
 # ─── GameStateTracker 单元测试 ──────────────────────────
